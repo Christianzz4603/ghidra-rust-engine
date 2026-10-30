@@ -670,7 +670,9 @@ pub fn ifc_analyze_all(args: &mut IStream, status: &mut IfaceStatus) -> IfaceRes
             Ok(())
         })
     };
-    iterate_functions_addr_order(status, &mut callback)?;
+    let iteration_result = iterate_functions_addr_order(status, &mut callback);
+    drop(callback);
+    iteration_result?;
     c_file.flush().map_err(|err| IfaceError::Execution(format!("Cannot flush {}: {err}", c_path.display())))?;
     asm_file.flush().map_err(|err| IfaceError::Execution(format!("Cannot flush {}: {err}", asm_path.display())))?;
     out_write(&optr, &format!(
