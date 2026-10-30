@@ -26,6 +26,17 @@ decompile add
 - Absolute file paths work regardless of the current directory. Relative paths are resolved from the directory where the program was launched.
 - Commands that save files accept either absolute paths or paths relative to the launch directory. Decompiled C output still defaults to `/sdcard/home` on Android.
 
+## Termux shell command (`open`)
+
+To make `open <file>` work directly from the Termux shell, build and install the command once:
+
+```sh
+cargo build --release --example decomp
+sh scripts/install-termux.sh
+```
+
+After installation, `open /sdcard/libtest.so` works from any directory. It loads the binary and then leaves the interactive decompiler console running so you can use `decompile`, `select`, disassembly and the other analysis commands. The installer places the executable and wrapper in `$PREFIX/bin`. It will not overwrite an existing `open` command unless you pass `--force`.
+
 ## Library usage
 
 ```rust
