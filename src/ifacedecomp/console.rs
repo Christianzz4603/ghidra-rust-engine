@@ -205,7 +205,7 @@ mod command_registration_tests {
         super::register_console_commands(&mut status);
         let result = status.run_command();
         assert!(
-            matches!(result, Err(IfaceError::Parse(message)) if message.contains("Usage: open <file>")),
+            matches!(&result, Err(IfaceError::Parse(message)) if message.contains("Usage: open <file>")),
             "open alias was not dispatched to its handler: {result:?}"
         );
     }
@@ -216,7 +216,7 @@ mod command_registration_tests {
         super::register_console_commands(&mut status);
         let result = status.run_command();
         assert!(
-            matches!(result, Err(IfaceError::Parse(message)) if message.contains("Usage: open <file>")),
+            matches!(&result, Err(IfaceError::Parse(message)) if message.contains("Usage: open <file>")),
             "load file command was not dispatched to its handler: {result:?}"
         );
     }
