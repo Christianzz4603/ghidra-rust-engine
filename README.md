@@ -70,7 +70,7 @@ let report = engine.analyze(&AnalysisOptions::default(), |event| {
         _ => {}
     }
 });
-# let _ = report;
+let _ = report;
 ```
 
 `AnalysisOptions` can independently enable function discovery, disassembly, decompilation, string extraction, data symbols, and call-graph construction. `AnalysisEngine::from_image` accepts in-memory executable bytes, and `AnalysisEngine::from_program` wraps an already configured `Program`. Function results are emitted one at a time, so applications do not need to retain every function's pseudocode in memory.
