@@ -590,6 +590,99 @@ pub fn ifc_produce_c(args: &mut IStream, status: &mut IfaceStatus) -> IfaceResul
     result
 }
 
+/// Analyze every function currently known to the loader and stream combined output to disk.
+/// This does not yet discover functions in stripped executable sections.
+pub fn ifc_analyze_all(args: &mut IStream, status: &mut IfaceStatus) -> IfaceResult<()> {
+    let optr = status.optr.clone();
+    let mut output_dir = String::new();
+    args.ws().read_word_into(&mut output_dir);
+    if output_dir.is_empty() {
+        output_dir = std::env::var("GHIDRA_DECOMPILER_OUTPUT_DIR")
+            .unwrap_or_else(|_| "/sdcard/home/analysis".to_string());
+    }
+    let directory = std::path::Path::new(&output_dir);
+    std::fs::create_dir_all(directory).map_err(|err| {
+        IfaceError::Execution(format!("Cannot create analysis folder {}: {err}", directory.display()))
+    })?;
+    let c_path = directory.join("all.c");
+    let asm_path = directory.join("all.asm");
+    let mut c_file = std::fs::File::create(&c_path).map_err(|err| {
+        IfaceError::Execution(format!("Cannot create {}: {err}", c_path.display()))
+    })?;
+    let mut asm_file = std::fs::File::create(&asm_path).map_err(|err| {
+        IfaceError::Execution(format!("Cannot create {}: {err}", asm_path.display()))
+    })?;
+
+    let mut processed = 0usize;
+    let mut skipped = 0usize;
+    out_write(&optr, &format!("Analyzing discovered functions. Output: {}\n", directory.display()));
+    let mut callback = |status: &mut IfaceStatus, sym: SymbolId| -> IfaceResult<()> {
+        let glb = conf_mut(decomp_data(status), "No architecture loaded")?;
+        with_function(glb, sym, |fd, glb| {
+            let name = fd.get_name().to_string();
+            if fd.has_no_code() {
+                skipped += 1;
+                out_write(&optr, &format!("Skipping {name}: no code\n"));
+                return Ok(());
+            }
+
+            let mut address = fd.get_address().clone();
+            let mut remaining = fd.get_size();
+            let mut assembly = IfaceAssemblyEmit::new(10);
+            let assembly_result = (|| -> crate::error::Result<()> {
+                let translate = glb.translate.as_deref().ok_or_else(|| {
+                    Error::Lowlevel("missing translator".to_string())
+                })?;
+                asm_file.write_all(format!("\n; {name}\n").as_bytes())
+                    .map_err(|err| Error::Lowlevel(err.to_string()))?;
+                while remaining > 0 {
+                    let result = translate.print_assembly(&mut assembly, &address);
+                    asm_file.write_all(assembly.out.as_bytes())
+                        .map_err(|err| Error::Lowlevel(err.to_string()))?;
+                    assembly.out.clear();
+                    let size = result?;
+                    if size <= 0 { break; }
+                    address = address.add(size as i64);
+                    remaining -= size;
+                }
+                Ok(())
+            })();
+            if let Err(err) = assembly_result {
+                if !err.is_lowlevel() { return Err(err.into()); }
+                skipped += 1;
+                out_write(&optr, &format!("Assembly skipped for {name}: {}\n", err.explain()));
+            }
+
+            if let Err(err) = timed_perform(fd, glb) {
+                if !err.is_lowlevel() { return Err(err.into()); }
+                skipped += 1;
+                out_write(&optr, &format!("Decompilation skipped for {name}: {}\n", err.explain()));
+                glb.clear_analysis(fd);
+                return Ok(());
+            }
+            let ((), text) = with_printer(glb, Some(fd), |printer, ctx| printer.doc_function(ctx))?;
+            c_file.write_all(format!("\n/* {name} */\n").as_bytes())
+                .and_then(|_| c_file.write_all(text.as_bytes()))
+                .map_err(|err| IfaceError::Execution(format!("Cannot write {}: {err}", c_path.display())))?;
+            processed += 1;
+            glb.clear_analysis(fd);
+            out_write(&optr, &format!("Processed {name}\n"));
+            Ok(())
+        })
+    };
+    iterate_functions_addr_order(status, &mut callback)?;
+    c_file.flush().map_err(|err| IfaceError::Execution(format!("Cannot flush {}: {err}", c_path.display())))?;
+    asm_file.flush().map_err(|err| IfaceError::Execution(format!("Cannot flush {}: {err}", asm_path.display())))?;
+    out_write(&optr, &format!(
+        "\nAnalysis finished: {processed} function(s) processed, {skipped} skipped.\nC output: {}\nAssembly output: {}\n",
+        c_path.display(), asm_path.display()
+    ));
+    if processed == 0 && skipped == 0 {
+        out_write(&optr, "No function symbols were discovered. This binary may be stripped or need automatic function discovery, which is not implemented yet.\n");
+    }
+    Ok(())
+}
+
 pub fn ifc_produce_prototypes(_args: &mut IStream, status: &mut IfaceStatus) -> IfaceResult<()> {
     let optr = status.optr.clone();
     let dcp = decomp_data(status);

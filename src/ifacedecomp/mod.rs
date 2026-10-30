@@ -515,6 +515,7 @@ pub fn register_commands(status: &mut IfaceStatus) {
     status.register_com(decomp_command(ifc_pointer_setting), &["pointer", "setting"]);
     status.register_com(decomp_command(ifc_prefer_split), &["prefersplit"]);
     status.register_com(decomp_command(ifc_structure_blocks), &["structure", "blocks"]);
+    status.register_com(decomp_command(ifc_analyze_all), &["analyze"]);
     status.register_com(decomp_command(ifc_analyze_range), &["analyze", "range"]);
     status.register_com(decomp_command(ifc_load_test_file), &["load", "test", "file"]);
     status.register_com(decomp_command(ifc_list_test_commands), &["list", "test", "commands"]);

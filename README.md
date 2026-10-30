@@ -151,6 +151,19 @@ The port fixes upstream decompiler bugs found by differential fuzzing instead of
 `tools/fuzz/reference_fixes.patch` applies the same behavior to the C++ reference so that the test data and
 the differential fuzzers compare equal behavior.
 
+## Whole-file analysis
+
+After opening a binary, run `analyze` to process every function symbol currently discovered by the loader:
+
+```text
+open /path/to/library.so
+analyze
+```
+
+The command streams combined C pseudocode to `all.c` and assembly to `all.asm` in `/sdcard/home/analysis` by default. Pass another output directory with `analyze <directory>`, or set `GHIDRA_DECOMPILER_OUTPUT_DIR`.
+
+This is a first whole-file export, not yet identical to IDA's automatic analysis. The current engine iterates known function symbols; it does not yet discover every function in a stripped binary or decode every executable byte range. If no function symbols are found, it reports that limitation rather than claiming the file was fully analyzed.
+
 ## Tests
 
 ```
