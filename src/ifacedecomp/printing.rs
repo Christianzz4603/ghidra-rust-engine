@@ -11,6 +11,7 @@ use crate::funcdata::Funcdata;
 use crate::graph::{dump_controlflow_graph, dump_dataflow_graph, dump_dom_graph};
 use crate::interface::{IStream, IfaceError, IfaceResult, IfaceStatus, OutStream, out_write};
 use crate::paramid::ParamIdAnalysis;
+use crate::program::Program;
 use crate::space::SpaceType;
 use crate::types::print_data;
 
@@ -590,8 +591,7 @@ pub fn ifc_produce_c(args: &mut IStream, status: &mut IfaceStatus) -> IfaceResul
     result
 }
 
-/// Analyze every function currently known to the loader and stream combined output to disk.
-/// This does not yet discover functions in stripped executable sections.
+/// Recursively discover reachable functions, then export their pseudocode and assembly.
 pub fn ifc_analyze_all(args: &mut IStream, status: &mut IfaceStatus) -> IfaceResult<()> {
     let optr = status.optr.clone();
     let mut output_dir = String::new();
@@ -613,75 +613,86 @@ pub fn ifc_analyze_all(args: &mut IStream, status: &mut IfaceStatus) -> IfaceRes
         IfaceError::Execution(format!("Cannot create {}: {err}", asm_path.display()))
     })?;
 
+    let filename = {
+        let dcp = decomp_data(status);
+        let glb = conf_mut(dcp, "No architecture loaded")?;
+        glb.loader
+            .as_ref()
+            .ok_or_else(|| IfaceError::Execution("No load image present".to_string()))?
+            .get_file_name()
+            .to_string()
+    };
+    out_write(&optr, &format!("Loading program metadata for {filename}...\n"));
+    let mut program = Program::open(std::path::Path::new(&filename), None)
+        .map_err(|err| IfaceError::Execution(format!("Cannot open program for discovery: {}", err.explain())))?;
+    out_write(&optr, "Discovering functions from entry point, symbols, and reachable code...\n");
+    program.discover_functions()
+        .map_err(|err| IfaceError::Execution(format!("Function discovery failed: {}", err.explain())))?;
+    let functions = program.functions()
+        .map_err(|err| IfaceError::Execution(format!("Cannot list functions: {}", err.explain())))?;
+    if functions.is_empty() {
+        out_write(&optr, "No functions were discovered. The binary may have no usable entry point or function symbols.\n");
+        return Ok(());
+    }
+
     let mut processed = 0usize;
     let mut skipped = 0usize;
-    out_write(&optr, &format!("Analyzing discovered functions. Output: {}\n", directory.display()));
-    let mut callback = |status: &mut IfaceStatus, sym: SymbolId| -> IfaceResult<()> {
-        let glb = conf_mut(decomp_data(status), "No architecture loaded")?;
-        with_function(glb, sym, |fd, glb| {
-            let name = fd.get_name().to_string();
-            if fd.has_no_code() {
+    let total = functions.len();
+    out_write(&optr, &format!("Analyzing {total} discovered function(s)...\n"));
+    for function in functions {
+        let name = function.name;
+        let address = function.address;
+        let size = match program.function_size(address) {
+            Ok(size) if size > 0 => size,
+            Ok(_) => {
                 skipped += 1;
-                out_write(&optr, &format!("Skipping {name}: no code\n"));
-                return Ok(());
+                continue;
             }
+            Err(err) => {
+                skipped += 1;
+                out_write(&optr, &format!("Skipping {name}: {}\n", err.explain()));
+                continue;
+            }
+        };
 
-            let mut address = fd.get_address().clone();
-            let mut remaining = fd.get_size();
-            let mut assembly = IfaceAssemblyEmit::new(10);
-            let assembly_result = (|| -> crate::error::Result<()> {
-                let translate = glb.translate.as_deref().ok_or_else(|| {
-                    Error::Lowlevel("missing translator".to_string())
-                })?;
-                asm_file.write_all(format!("\n; {name}\n").as_bytes())
-                    .map_err(|err| Error::Lowlevel(err.to_string()))?;
-                while remaining > 0 {
-                    let result = translate.print_assembly(&mut assembly, &address);
-                    asm_file.write_all(assembly.out.as_bytes())
-                        .map_err(|err| Error::Lowlevel(err.to_string()))?;
-                    assembly.out.clear();
-                    let size = result?;
-                    if size <= 0 { break; }
-                    address = address.add(size as i64);
-                    remaining -= size;
+        match program.disassemble_range(address, size) {
+            Ok(instructions) => {
+                asm_file.write_all(format!("\n; {name} @ {address:#x}\n").as_bytes())
+                    .map_err(|err| IfaceError::Execution(format!("Cannot write {}: {err}", asm_path.display())))?;
+                for instruction in instructions {
+                    let bytes = instruction.bytes.iter().map(|byte| format!("{byte:02x}")).collect::<Vec<_>>().join(" ");
+                    asm_file.write_all(format!("{:#010x}: {:<24} {} {}\n", instruction.address, bytes, instruction.mnemonic, instruction.operands).as_bytes())
+                        .map_err(|err| IfaceError::Execution(format!("Cannot write {}: {err}", asm_path.display())))?;
                 }
-                Ok(())
-            })();
-            if let Err(err) = assembly_result {
-                if !err.is_lowlevel() { return Err(err.into()); }
+            }
+            Err(err) => {
                 skipped += 1;
                 out_write(&optr, &format!("Assembly skipped for {name}: {}\n", err.explain()));
             }
+        }
 
-            if let Err(err) = timed_perform(fd, glb) {
-                if !err.is_lowlevel() { return Err(err.into()); }
+        match program.decompile(address) {
+            Ok(text) => {
+                c_file.write_all(format!("\n/* {name} @ {address:#x} */\n").as_bytes())
+                    .and_then(|_| c_file.write_all(text.as_bytes()))
+                    .map_err(|err| IfaceError::Execution(format!("Cannot write {}: {err}", c_path.display())))?;
+                processed += 1;
+            }
+            Err(err) => {
                 skipped += 1;
                 out_write(&optr, &format!("Decompilation skipped for {name}: {}\n", err.explain()));
-                glb.clear_analysis(fd);
-                return Ok(());
             }
-            let ((), text) = with_printer(glb, Some(fd), |printer, ctx| printer.doc_function(ctx))?;
-            c_file.write_all(format!("\n/* {name} */\n").as_bytes())
-                .and_then(|_| c_file.write_all(text.as_bytes()))
-                .map_err(|err| IfaceError::Execution(format!("Cannot write {}: {err}", c_path.display())))?;
-            processed += 1;
-            glb.clear_analysis(fd);
-            out_write(&optr, &format!("Processed {name}\n"));
-            Ok(())
-        })
-    };
-    let iteration_result = iterate_functions_addr_order(status, &mut callback);
-    drop(callback);
-    iteration_result?;
+        }
+        if processed % 25 == 0 && processed > 0 {
+            out_write(&optr, &format!("Progress: {processed}/{total} functions processed\n"));
+        }
+    }
     c_file.flush().map_err(|err| IfaceError::Execution(format!("Cannot flush {}: {err}", c_path.display())))?;
     asm_file.flush().map_err(|err| IfaceError::Execution(format!("Cannot flush {}: {err}", asm_path.display())))?;
     out_write(&optr, &format!(
-        "\nAnalysis finished: {processed} function(s) processed, {skipped} skipped.\nC output: {}\nAssembly output: {}\n",
+        "\nAnalysis finished: {processed} function(s) decompiled, {skipped} operation(s) skipped.\nC output: {}\nAssembly output: {}\n",
         c_path.display(), asm_path.display()
     ));
-    if processed == 0 && skipped == 0 {
-        out_write(&optr, "No function symbols were discovered. This binary may be stripped or need automatic function discovery, which is not implemented yet.\n");
-    }
     Ok(())
 }
 

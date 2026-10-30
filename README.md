@@ -153,16 +153,16 @@ the differential fuzzers compare equal behavior.
 
 ## Whole-file analysis
 
-After opening a binary, run `analyze` to process every function symbol currently discovered by the loader:
+After opening a binary, run `analyze` to recursively discover reachable functions and export their pseudocode and assembly:
 
 ```text
 open /path/to/library.so
 analyze
 ```
 
-The command streams combined C pseudocode to `all.c` and assembly to `all.asm` in `/sdcard/home/analysis` by default. Pass another output directory with `analyze <directory>`, or set `GHIDRA_DECOMPILER_OUTPUT_DIR`.
+The command seeds discovery from the executable entry point and all function symbols, follows direct call targets and code-address references, then streams combined C pseudocode to `all.c` and assembly to `all.asm` in `/sdcard/home/analysis` by default. Pass another output directory with `analyze <directory>`, or set `GHIDRA_DECOMPILER_OUTPUT_DIR`.
 
-This is a first whole-file export, not yet identical to IDA's automatic analysis. The current engine iterates known function symbols; it does not yet discover every function in a stripped binary or decode every executable byte range. If no function symbols are found, it reports that limitation rather than claiming the file was fully analyzed.
+This is recursive code discovery, not yet identical to IDA's full auto-analysis. Unreferenced functions, functions reachable only through unresolved indirect calls, and code hidden behind unusual control-flow patterns may still be missed. The output should be treated as a best-effort analysis, not a guarantee that every executable byte has been classified.
 
 ## Tests
 

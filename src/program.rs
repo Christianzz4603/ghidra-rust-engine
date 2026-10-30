@@ -734,6 +734,52 @@ impl Program {
         Ok(instructions)
     }
 
+    /// Return the byte size of a known function starting at `address`.
+    pub fn function_size(&mut self, address: u64) -> Result<u64> {
+        let addr = self.code_address(address)?;
+        let scope = self.global_scope()?;
+        let sym = self
+            .symbol_table()?
+            .scope_query_function(scope, &addr)
+            .ok_or_else(|| Error::Lowlevel(format!("no function starts at {address:#x}")))?;
+        self.architecture
+            .with_function(sym, |function, _architecture| Ok(function.get_size().max(0) as u64))
+    }
+
+    /// Disassemble a byte range, stopping after the instruction covering its end.
+    pub fn disassemble_range(&self, address: u64, byte_length: u64) -> Result<Vec<Instruction>> {
+        panic_guard(|| {
+            let translate = self.architecture.translator()?;
+            let mut current = self.code_address(address)?;
+            let mut remaining = byte_length;
+            let mut instructions = Vec::new();
+            while remaining > 0 {
+                let mut text = InstructionText {
+                    mnemonic: String::new(),
+                    operands: String::new(),
+                };
+                let length = translate.print_assembly(&mut text, &current)?;
+                if length <= 0 {
+                    return Err(Error::Lowlevel(format!("invalid instruction length at {:#x}", current.get_offset())));
+                }
+                let mut bytes = vec![0u8; length as usize];
+                if let Some(loader) = &self.architecture.loader {
+                    loader.load_fill(&mut bytes, &current)?;
+                }
+                instructions.push(Instruction {
+                    address: current.get_offset(),
+                    length: length as usize,
+                    bytes,
+                    mnemonic: text.mnemonic,
+                    operands: text.operands,
+                });
+                current = current.add(i64::from(length));
+                remaining = remaining.saturating_sub(length as u64);
+            }
+            Ok(instructions)
+        })
+    }
+
     pub fn pcode(&self, address: u64, instruction_count: usize) -> Result<Vec<InstructionPcode>> {
         panic_guard(|| self.pcode_unguarded(address, instruction_count))
     }

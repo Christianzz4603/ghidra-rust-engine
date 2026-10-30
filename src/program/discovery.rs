@@ -60,21 +60,26 @@ impl Program {
         })
     }
 
+    /// Discover additional functions recursively from the executable entry point
+    /// and every function already supplied by the binary's symbol tables.
     pub fn discover_functions(&mut self) -> Result<()> {
-        let has_function_symbols = self.functions.values().any(|record| {
-            matches!(
-                record.source,
-                FunctionSource::SymbolTable | FunctionSource::DynamicSymbol
-            )
-        });
-        let Some(entry) = self.entry.take().filter(|_| !has_function_symbols) else {
-            return Ok(());
-        };
-        super::panic_guard(|| self.discover_from(entry))
+        let mut seeds = Vec::new();
+        if let Some(entry) = self.entry.take() {
+            seeds.push(entry);
+        }
+        let known_symbols: Vec<SymbolId> = self.functions.keys().copied().collect();
+        for sym in known_symbols {
+            if let Ok(address) = self.function_address(sym) {
+                seeds.push(address);
+            }
+        }
+        seeds.sort_unstable();
+        seeds.dedup();
+        super::panic_guard(|| self.discover_from(seeds))
     }
 
-    fn discover_from(&mut self, entry: u64) -> Result<()> {
-        let mut pending = vec![entry];
+    fn discover_from(&mut self, seeds: Vec<u64>) -> Result<()> {
+        let mut pending = seeds;
         let mut visited = BTreeSet::new();
         while let Some(address) = pending.pop() {
             if !visited.insert(address) || !self.is_code_address(address) {
