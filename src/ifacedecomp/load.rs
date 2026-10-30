@@ -43,7 +43,7 @@ pub fn read_machaddr(args: &mut IStream, size: &mut i32, glb: &Architecture) -> 
 pub fn ifc_source(args: &mut IStream, status: &mut IfaceStatus) -> IfaceResult<()> {
     args.ws();
     if args.eof() {
-        return Err(IfaceError::Parse("filename parameter required for source".to_string()));
+        return Err(IfaceError::Parse("Usage: source <file>".to_string()));
     }
     let mut filename = String::new();
     args.read_word_into(&mut filename);
@@ -109,7 +109,7 @@ pub fn ifc_parse_file(args: &mut IStream, status: &mut IfaceStatus) -> IfaceResu
     let mut filename = String::new();
     args.ws().read_word_into(&mut filename);
     if filename.is_empty() {
-        return Err(IfaceError::Parse("Missing filename".to_string()));
+        return Err(IfaceError::Parse("Usage: parse file <file>".to_string()));
     }
     let Ok(file) = std::fs::File::open(&filename) else {
         return Err(IfaceError::Execution(format!("Unable to open file: {filename}")));
@@ -158,7 +158,10 @@ pub fn ifc_adjust_vma(args: &mut IStream, status: &mut IfaceStatus) -> IfaceResu
 pub fn ifc_funcload(args: &mut IStream, status: &mut IfaceStatus) -> IfaceResult<()> {
     let optr = status.optr.clone();
     let mut funcname = String::new();
-    args.read_word_into(&mut funcname);
+    args.ws().read_word_into(&mut funcname);
+    if funcname.is_empty() {
+        return Err(IfaceError::Parse("Usage: select <function> (or: load function <function>)".to_string()));
+    }
     let dcp = decomp_data(status);
     let glb = conf_mut(dcp, "No image loaded")?;
     let delim = glb.get_scope_delimiter();

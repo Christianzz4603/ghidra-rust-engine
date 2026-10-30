@@ -126,6 +126,9 @@ pub fn ifc_decompile(args: &mut IStream, status: &mut IfaceStatus) -> IfaceResul
     let mut requested_name = String::new();
     args.ws();
     args.read_word_into(&mut requested_name);
+    if requested_name.is_empty() {
+        return Err(IfaceError::Parse("Usage: decompile <function>".to_string()));
+    }
 
     // Beginner-friendly form: `decompile <function>` selects the function automatically.
     if !requested_name.is_empty() {

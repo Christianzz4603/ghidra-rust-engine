@@ -21,7 +21,10 @@ pub fn ifc_load_file(args: &mut IStream, status: &mut IfaceStatus) -> IfaceResul
     }
     let mut filename = String::new();
     let target;
-    args.read_word_into(&mut filename);
+    args.ws().read_word_into(&mut filename);
+    if filename.is_empty() {
+        return Err(IfaceError::Parse("Usage: open <file> (or: load file <file>)".to_string()));
+    }
     if !args.eof() {
         target = filename.clone();
         args.read_word_into(&mut filename);
@@ -55,9 +58,9 @@ pub fn ifc_load_file(args: &mut IStream, status: &mut IfaceStatus) -> IfaceResul
 
 pub fn ifc_addpath(args: &mut IStream, _status: &mut IfaceStatus) -> IfaceResult<()> {
     let mut newpath = String::new();
-    args.read_word_into(&mut newpath);
+    args.ws().read_word_into(&mut newpath);
     if newpath.is_empty() {
-        return Err(IfaceError::Parse("Missing path name".to_string()));
+        return Err(IfaceError::Parse("Usage: addpath <directory>".to_string()));
     }
     add_global_language_directory(Path::new(&newpath))?;
     Ok(())
@@ -65,15 +68,16 @@ pub fn ifc_addpath(args: &mut IStream, _status: &mut IfaceStatus) -> IfaceResult
 
 pub fn ifc_save(args: &mut IStream, status: &mut IfaceStatus) -> IfaceResult<()> {
     args.ws();
-    if !args.eof() {
-        let mut name = String::new();
-        args.read_word_into(&mut name);
-        SAVEFILE.with(|savefile| *savefile.borrow_mut() = name);
+    if args.eof() {
+        return Err(IfaceError::Parse("Usage: save <file>".to_string()));
     }
+    let mut name = String::new();
+    args.read_word_into(&mut name);
+    if name.is_empty() {
+        return Err(IfaceError::Parse("Usage: save <file>".to_string()));
+    }
+    SAVEFILE.with(|savefile| *savefile.borrow_mut() = name);
     let savefile = SAVEFILE.with(|savefile| savefile.borrow().clone());
-    if savefile.is_empty() {
-        return Err(IfaceError::Parse("Missing savefile name".to_string()));
-    }
     let Ok(mut file) = std::fs::File::create(&savefile) else {
         return Err(IfaceError::Execution(format!("Unable to open file: {savefile}")));
     };
@@ -81,7 +85,8 @@ pub fn ifc_save(args: &mut IStream, status: &mut IfaceStatus) -> IfaceResult<()>
     let glb = conf_mut(dcp, "No load image present")?;
     let mut encoder = XmlEncode::new(true);
     let result = glb.encode(&mut encoder);
-    let _ = file.write_all(encoder.as_str().as_bytes());
+    file.write_all(encoder.as_str().as_bytes())
+        .map_err(|err| IfaceError::Execution(format!("Unable to write file {savefile}: {err}")))?;
     result?;
     Ok(())
 }
@@ -89,12 +94,12 @@ pub fn ifc_save(args: &mut IStream, status: &mut IfaceStatus) -> IfaceResult<()>
 pub fn ifc_restore(args: &mut IStream, status: &mut IfaceStatus) -> IfaceResult<()> {
     let optr = status.optr.clone();
     let mut name = String::new();
-    args.read_word_into(&mut name);
+    args.ws().read_word_into(&mut name);
+    if name.is_empty() {
+        return Err(IfaceError::Parse("Usage: restore <file>".to_string()));
+    }
     SAVEFILE.with(|savefile| *savefile.borrow_mut() = name);
     let savefile = SAVEFILE.with(|savefile| savefile.borrow().clone());
-    if savefile.is_empty() {
-        return Err(IfaceError::Parse("Missing file name".to_string()));
-    }
     let mut store = DocumentStorage::new();
     let doc = store.open_document(&savefile)?;
     store.register_tag(doc.get_root());

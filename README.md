@@ -20,7 +20,11 @@ decompile add
 - `decompile <function>` selects and decompiles that function in one step.
 - A successful decompilation automatically saves readable C pseudocode to `/sdcard/home/<function>.c` on Android. The folder is created automatically.
 - Set `GHIDRA_DECOMPILER_OUTPUT_DIR` before launching the program to choose another output folder.
-- The original Ghidra-style commands remain available. Running `decompile` without a name uses the currently selected function.
+- The original Ghidra-style analysis commands remain available, including disassembly, P-code, control-flow, data-flow and graph analysis.
+- Typing a required-argument command by itself prints its syntax, for example `open`, `select`, `decompile`, `save` or `restore`.
+- The console can be launched from any working directory. Processor definitions are embedded in the build, so it does not need to be started from the repository root.
+- Absolute file paths work regardless of the current directory. Relative paths are resolved from the directory where the program was launched.
+- Commands that save files accept either absolute paths or paths relative to the launch directory. Decompiled C output still defaults to `/sdcard/home` on Android.
 
 ## Library usage
 
