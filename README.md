@@ -46,6 +46,35 @@ The shell launcher uses the canonical `load file <file>` command so it remains c
 
 After installation, `open /sdcard/libtest.so` works from any directory. It loads the binary and then leaves the interactive decompiler console running so you can use `decompile`, `select`, disassembly and the other analysis commands. The installer places the executable and wrapper in `$PREFIX/bin`. It will not overwrite an existing `open` command unless you pass `--force`.
 
+## Reusable analysis engine API
+
+Applications can embed the high-level analysis engine directly. It is UI- and file-output-agnostic: a Rust desktop app, Android JNI layer, CLI, or server can receive progress events and decide how to display or store each function result.
+
+```rust
+use std::path::Path;
+use ghidra_decompiler::analysis::{AnalysisEngine, AnalysisEvent, AnalysisOptions};
+
+let mut engine = AnalysisEngine::open(Path::new("libexample.so"), None)?;
+let report = engine.analyze(&AnalysisOptions::default(), |event| {
+    match event {
+        AnalysisEvent::Started { total_functions } => println!("Found {total_functions} functions"),
+        AnalysisEvent::FunctionCompleted { result, .. } => {
+            if let Some(code) = result.pseudocode {
+                // Stream this function to a file, database, or application UI.
+                println!("{}: {} bytes of pseudocode", result.function.name, code.len());
+            }
+        }
+        AnalysisEvent::Finished { analyzed, with_errors, total } => {
+            println!("Finished: {analyzed}/{total}, {with_errors} with errors");
+        }
+        _ => {}
+    }
+});
+# let _ = report;
+```
+
+`AnalysisOptions` can independently enable function discovery, disassembly, decompilation, string extraction, data symbols, and call-graph construction. `AnalysisEngine::from_image` accepts in-memory executable bytes, and `AnalysisEngine::from_program` wraps an already configured `Program`. Function results are emitted one at a time, so applications do not need to retain every function's pseudocode in memory.
+
 ## Library usage
 
 ```rust
