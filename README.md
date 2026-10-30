@@ -28,12 +28,21 @@ decompile add
 
 ## Termux shell command (`open`)
 
-To make `open <file>` work directly from the Termux shell, build and install the command once:
+To make `open <file>` work directly from the Termux shell, build and install the launcher:
 
 ```sh
 cargo build --release --example decomp
 sh scripts/install-termux.sh
 ```
+
+When updating an existing installation, rebuild and reinstall the copied executable too:
+
+```sh
+cargo build --release --example decomp
+sh scripts/install-termux.sh --force
+```
+
+The shell launcher uses the canonical `load file <file>` command so it remains compatible with older installed binaries. The interactive console also supports `open <file>` after rebuilding.
 
 After installation, `open /sdcard/libtest.so` works from any directory. It loads the binary and then leaves the interactive decompiler console running so you can use `decompile`, `select`, disassembly and the other analysis commands. The installer places the executable and wrapper in `$PREFIX/bin`. It will not overwrite an existing `open` command unless you pass `--force`.
 
