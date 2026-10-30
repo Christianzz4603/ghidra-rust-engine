@@ -121,11 +121,38 @@ fn perform_report(optr: &OutStream, res: i32, glb: &mut Architecture) {
     out_write(optr, "\n");
 }
 
-pub fn ifc_decompile(_args: &mut IStream, status: &mut IfaceStatus) -> IfaceResult<()> {
+pub fn ifc_decompile(args: &mut IStream, status: &mut IfaceStatus) -> IfaceResult<()> {
     let optr = status.optr.clone();
+    let mut requested_name = String::new();
+    args.ws();
+    args.read_word_into(&mut requested_name);
+
+    // Beginner-friendly form: `decompile <function>` selects the function automatically.
+    if !requested_name.is_empty() {
+        let dcp = decomp_data(status);
+        let glb = conf_mut(dcp, "No image loaded")?;
+        let delim = glb.get_scope_delimiter();
+        let mut basename = String::new();
+        let symboltab = symbol_table(glb)?;
+        let Some(scope) = symboltab.resolve_scope_from_symbol_name(
+            &requested_name, &delim, &mut basename, None
+        ) else {
+            return Err(IfaceError::Execution(format!("Unknown function: {requested_name}")));
+        };
+        let Some(sym) = symboltab.scope_query_function_by_name(scope, &basename) else {
+            return Err(IfaceError::Execution(format!("Unknown function: {requested_name}")));
+        };
+        dcp.fd = Some(sym);
+        let glb = conf_mut(dcp, "No image loaded")?;
+        let has_code = with_function(glb, sym, |fd, _glb| Ok(!fd.has_no_code()))?;
+        if has_code {
+            dcp.follow_flow(&optr, 0)?;
+        }
+    }
+
     let dcp = decomp_data(status);
     if dcp.fd.is_none() {
-        return Err(no_function("No function selected"));
+        return Err(no_function("No function selected. Use: decompile <function_name>"));
     }
     with_current_function(dcp, |fd, glb| {
         if fd.has_no_code() {
@@ -136,12 +163,31 @@ pub fn ifc_decompile(_args: &mut IStream, status: &mut IfaceStatus) -> IfaceResu
             out_write(&optr, "Clearing old decompilation\n");
             glb.clear_analysis(fd);
         }
-        out_write(&optr, &format!("Decompiling {}\n", fd.get_name()));
+        let name = fd.get_name().to_string();
+        out_write(&optr, &format!("Decompiling {name}...\n"));
         let res = with_current_action(glb, |action, glb| {
             action.reset(fd, glb);
             action.perform(fd, glb)
         })?;
         perform_report(&optr, res, glb);
+
+        let ((), text) = with_printer(glb, Some(fd), |printer, ctx| printer.doc_function(ctx))?;
+        let safe_name: String = name
+            .chars()
+            .map(|ch| if ch.is_ascii_alphanumeric() || ch == '_' || ch == '-' { ch } else { '_' })
+            .collect();
+        let safe_name = if safe_name.is_empty() { "function" } else { &safe_name };
+        let output_dir = std::env::var("GHIDRA_DECOMPILER_OUTPUT_DIR")
+            .unwrap_or_else(|_| "/sdcard/home".to_string());
+        std::fs::create_dir_all(&output_dir).map_err(|err| {
+            IfaceError::Execution(format!("Cannot create output folder {output_dir}: {err}"))
+        })?;
+        let output_path = std::path::Path::new(&output_dir).join(format!("{safe_name}.c"));
+        std::fs::write(&output_path, &text).map_err(|err| {
+            IfaceError::Execution(format!("Cannot save decompiled file {}: {err}", output_path.display()))
+        })?;
+        out_write(&optr, &format!("Saved C pseudocode to {}\n", output_path.display()));
+        out_write(&optr, &text);
         Ok(())
     })
 }

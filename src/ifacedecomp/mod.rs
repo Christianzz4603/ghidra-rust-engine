@@ -419,6 +419,7 @@ pub fn register_commands(status: &mut IfaceStatus) {
     status.register_com(decomp_command(ifc_parse_line), &["parse", "line"]);
     status.register_com(decomp_command(ifc_adjust_vma), &["adjust", "vma"]);
     status.register_com(decomp_command(ifc_funcload), &["load", "function"]);
+    status.register_com(decomp_command(ifc_funcload), &["select"]); // Short alias for beginners.
     status.register_com(decomp_command(ifc_addrrange_load), &["load", "addr"]);
     status.register_com(decomp_command(ifc_read_symbols), &["read", "symbols"]);
     status.register_com(decomp_command(ifc_cleararch), &["clear", "architecture"]);

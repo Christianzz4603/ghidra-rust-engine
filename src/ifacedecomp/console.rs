@@ -117,6 +117,7 @@ pub fn ifc_restore(args: &mut IStream, status: &mut IfaceStatus) -> IfaceResult<
 
 pub fn register_console_commands(status: &mut IfaceStatus) {
     status.register_com(decomp_command(ifc_load_file), &["load", "file"]);
+    status.register_com(decomp_command(ifc_load_file), &["open"]); // Short alias for beginners.
     status.register_com(decomp_command(ifc_addpath), &["addpath"]);
     status.register_com(decomp_command(ifc_save), &["save"]);
     status.register_com(decomp_command(ifc_restore), &["restore"]);

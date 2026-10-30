@@ -6,6 +6,22 @@ A pure Rust port of the Ghidra decompiler (Ghidra 12.2, `Ghidra/Features/Decompi
 It has no C, C++ or Java dependencies. The output is textually identical to the C++ decompiler on the
 test corpora in `tests/data`.
 
+## Beginner-friendly console workflow
+
+The interactive console supports short commands for the most common tasks:
+
+```text
+open /path/to/program.so
+decompile add
+```
+
+- `open <file>` loads an ELF, PE, or Mach-O binary. It is a shorter alias for `load file <file>`.
+- `select <function>` selects a function. It is a shorter alias for `load function <function>`.
+- `decompile <function>` selects and decompiles that function in one step.
+- A successful decompilation automatically saves readable C pseudocode to `/sdcard/home/<function>.c` on Android. The folder is created automatically.
+- Set `GHIDRA_DECOMPILER_OUTPUT_DIR` before launching the program to choose another output folder.
+- The original Ghidra-style commands remain available. Running `decompile` without a name uses the currently selected function.
+
 ## Library usage
 
 ```rust
