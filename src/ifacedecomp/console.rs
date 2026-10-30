@@ -45,9 +45,9 @@ pub fn ifc_load_file(args: &mut IStream, status: &mut IfaceStatus) -> IfaceResul
         dcp.loader_slot = None;
         return Ok(());
     }
-    if capa.get_name() == "xml" {
-        glb.read_loader_symbols()?;
-    }
+    // Import symbols exposed by the loader for every image format.
+    // read_loader_symbols() is idempotent and safely handles loaders with no symbols.
+    glb.read_loader_symbols()?;
     let description = glb.get_description();
     out_write(&optr, &format!("{filename} successfully loaded: {description}\n"));
     Ok(())
