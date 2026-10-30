@@ -48,6 +48,8 @@ After installation, `open /sdcard/libtest.so` works from any directory. It loads
 
 ## Reusable analysis engine API
 
+The public API combines high-level analysis orchestration with lower-level program controls. `Program` supports function lookup and creation, symbol renaming, memory and code reads, register metadata, P-code, disassembly, decompilation, call graphs, and print-language selection. `AnalysisEngine` adds configurable whole-program passes, address/function filtering, result limits, progress events, and single-function analysis.
+
 Applications can embed the high-level analysis engine directly. It is UI- and file-output-agnostic: a Rust desktop app, Android JNI layer, CLI, or server can receive progress events and decide how to display or store each function result.
 
 ```rust
@@ -60,7 +62,6 @@ let report = engine.analyze(&AnalysisOptions::default(), |event| {
         AnalysisEvent::Started { total_functions } => println!("Found {total_functions} functions"),
         AnalysisEvent::FunctionCompleted { result, .. } => {
             if let Some(code) = result.pseudocode {
-                // Stream this function to a file, database, or application UI.
                 println!("{}: {} bytes of pseudocode", result.function.name, code.len());
             }
         }
@@ -73,7 +74,7 @@ let report = engine.analyze(&AnalysisOptions::default(), |event| {
 let _ = report;
 ```
 
-`AnalysisOptions` can independently enable function discovery, disassembly, decompilation, string extraction, data symbols, and call-graph construction. Use `AnalysisOptions::low_memory()` on constrained phones: it keeps function discovery and decompilation enabled, but skips the separate disassembly pass (which decodes the same bodies again) and skips optional strings, data-symbol, and call-graph collections. The default profile keeps every pass enabled. `AnalysisEngine::from_image` accepts in-memory executable bytes, and `AnalysisEngine::from_program` wraps an already configured `Program`. Function results are emitted one at a time, so applications do not need to retain every function's pseudocode in memory.
+`AnalysisOptions` can independently enable function discovery, disassembly, decompilation, string extraction, data symbols, and call-graph construction. Use `AnalysisSelection::with_function_addresses`, `with_address_range`, and `with_max_functions` with `AnalysisEngine::analyze_selected` to restrict a run to chosen functions or an address window. `AnalysisEngine::analyze_function(address, options)` analyzes one function. `open_with` and `from_image_with` expose loader-only versus full symbol loading, while `from_raw_bytes` supports headerless code. `Program::read_memory` and `read_code` expose bytes; `register_info`, `entry_point`, `find_function_by_name`, `find_function_at`, and `ensure_function_at` provide direct program inspection and control. Use `AnalysisOptions::low_memory()` on constrained phones: it keeps function discovery and decompilation enabled, but skips the separate disassembly pass (which decodes the same bodies again) and skips optional strings, data-symbol, and call-graph collections. The default profile keeps every pass enabled. `AnalysisEngine::from_image` accepts in-memory executable bytes, and `AnalysisEngine::from_program` wraps an already configured `Program`. Function results are emitted one at a time, so applications do not need to retain every function's pseudocode in memory.
 
 ### Build profiles
 
@@ -101,6 +102,10 @@ let pcode = program.pcode(main.address, 1)?;
 let c_code = program.decompile(main.address)?;
 let edges = program.call_graph()?;
 ```
+
+## Acknowledgments
+
+Thanks to [koute](https://github.com/koute) for publishing the original Rust port of the Ghidra decompiler, which provided an important foundation for this project.
 
 ## Examples
 

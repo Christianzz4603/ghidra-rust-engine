@@ -131,7 +131,7 @@ pub fn ifc_decompile(args: &mut IStream, status: &mut IfaceStatus) -> IfaceResul
         return Err(IfaceError::Parse("Usage: decompile <function>".to_string()));
     }
 
-    // Beginner-friendly form: `decompile <function>` selects the function automatically.
+                                                                                         
     if !requested_name.is_empty() {
         let dcp = decomp_data(status);
         let glb = conf_mut(dcp, "No image loaded")?;
@@ -591,7 +591,7 @@ pub fn ifc_produce_c(args: &mut IStream, status: &mut IfaceStatus) -> IfaceResul
     result
 }
 
-/// Recursively discover reachable functions and export a navigable analysis database.
+                                                                                      
 pub fn ifc_analyze_all(args: &mut IStream, status: &mut IfaceStatus) -> IfaceResult<()> {
     let optr = status.optr.clone();
     let mut output_dir = String::new();

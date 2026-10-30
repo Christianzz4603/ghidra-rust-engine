@@ -107,3 +107,7 @@ pub mod varmap;
 pub mod varnode;
 pub mod xml;
 pub mod xml_arch;
+
+pub use analysis::{AnalysisEngine, AnalysisEvent, AnalysisOptions, AnalysisReport, AnalysisSelection, FunctionAnalysis};
+pub use error::{Error, Result};
+pub use program::{CallEdge, DataEntry, FunctionEntry, FunctionSource, Instruction, InstructionPcode, PcodeOperation, PcodeVarnode, Program, StringEntry, SymbolLoading};

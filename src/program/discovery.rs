@@ -60,8 +60,8 @@ impl Program {
         })
     }
 
-    /// Discover additional functions recursively from the executable entry point
-    /// and every function already supplied by the binary's symbol tables.
+                                                                                 
+                                                                          
     pub fn discover_functions(&mut self) -> Result<()> {
         let mut seeds = Vec::new();
         if let Some(entry) = self.entry.take() {

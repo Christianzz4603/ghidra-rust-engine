@@ -48,8 +48,8 @@ pub fn ifc_load_file(args: &mut IStream, status: &mut IfaceStatus) -> IfaceResul
         dcp.loader_slot = None;
         return Ok(());
     }
-    // Import symbols exposed by the loader for every image format.
-    // read_loader_symbols() is idempotent and safely handles loaders with no symbols.
+                                                                   
+                                                                                      
     glb.read_loader_symbols()?;
     let description = glb.get_description();
     out_write(&optr, &format!("{filename} successfully loaded: {description}\n"));
@@ -122,7 +122,7 @@ pub fn ifc_restore(args: &mut IStream, status: &mut IfaceStatus) -> IfaceResult<
 
 pub fn register_console_commands(status: &mut IfaceStatus) {
     status.register_com(decomp_command(ifc_load_file), &["load", "file"]);
-    status.register_com(decomp_command(ifc_load_file), &["open"]); // Short alias for beginners.
+    status.register_com(decomp_command(ifc_load_file), &["open"]);                              
     status.register_com(decomp_command(ifc_addpath), &["addpath"]);
     status.register_com(decomp_command(ifc_save), &["save"]);
     status.register_com(decomp_command(ifc_restore), &["restore"]);

@@ -1,27 +1,27 @@
-//! High-level, reusable binary-analysis API.
-//!
-//! This module is independent of the console and output-file layout. Applications
-//! can consume progress events and decide how to display or persist each result.
+                                             
+   
+                                                                                  
+                                                                                 
 
 use std::path::Path;
 
 use crate::error::Result;
-use crate::program::{CallEdge, DataEntry, FunctionEntry, Instruction, Program, StringEntry};
+use crate::program::{CallEdge, DataEntry, FunctionEntry, Instruction, Program, StringEntry, SymbolLoading};
 
-/// Controls which analysis passes are run by [`AnalysisEngine::analyze`].
+                                                                          
 #[derive(Clone, Debug)]
 pub struct AnalysisOptions {
-    /// Discover additional functions from the entry point and reachable code.
+                                                                              
     pub discover_functions: bool,
-    /// Decode machine instructions for each discovered function.
+                                                                 
     pub disassemble: bool,
-    /// Produce C-like pseudocode for each discovered function.
+                                                               
     pub decompile: bool,
-    /// Extract printable UTF-8 strings from recognized string sections.
+                                                                        
     pub extract_strings: bool,
-    /// Include recognized global data symbols.
+                                               
     pub collect_data_symbols: bool,
-    /// Build direct call-graph edges.
+                                      
     pub build_call_graph: bool,
 }
 
@@ -39,12 +39,12 @@ impl Default for AnalysisOptions {
 }
 
 impl AnalysisOptions {
-    /// A lower-memory whole-program pass for phones and other constrained devices.
-    ///
-    /// Function discovery and C-like decompilation remain enabled. The separate
-    /// disassembly pass is disabled because it decodes the same function bodies
-    /// again, and optional string, data-symbol, and call-graph collections are
-    /// skipped. Enable those fields individually when their results are needed.
+                                                                                   
+       
+                                                                                
+                                                                                
+                                                                               
+                                                                                
     pub fn low_memory() -> Self {
         Self {
             discover_functions: true,
@@ -57,8 +57,28 @@ impl AnalysisOptions {
     }
 }
 
-/// Results for one function. Errors are local to this function and do not abort
-/// analysis of the remaining functions.
+#[derive(Clone, Debug, Default)]
+pub struct AnalysisSelection {
+    pub function_addresses: Option<Vec<u64>>,
+    pub start_address: Option<u64>,
+    pub end_address: Option<u64>,
+    pub max_functions: Option<usize>,
+}
+
+impl AnalysisSelection {
+    pub fn with_function_addresses(mut self, addresses: impl IntoIterator<Item = u64>) -> Self {
+        self.function_addresses = Some(addresses.into_iter().collect()); self
+    }
+
+    pub fn with_address_range(mut self, start: u64, end: u64) -> Self {
+        self.start_address = Some(start); self.end_address = Some(end); self
+    }
+
+    pub fn with_max_functions(mut self, maximum: usize) -> Self { self.max_functions = Some(maximum); self }
+}
+
+                                                                                
+                                        
 #[derive(Clone, Debug)]
 pub struct FunctionAnalysis {
     pub function: FunctionEntry,
@@ -68,7 +88,7 @@ pub struct FunctionAnalysis {
     pub errors: Vec<String>,
 }
 
-/// Progress notifications emitted while an analysis is running.
+                                                                
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum AnalysisEvent {
@@ -78,7 +98,7 @@ pub enum AnalysisEvent {
     Finished { analyzed: usize, with_errors: usize, total: usize },
 }
 
-/// Metadata and aggregate counts from a completed analysis.
+                                                            
 #[derive(Clone, Debug)]
 pub struct AnalysisReport {
     pub functions: Vec<FunctionEntry>,
@@ -89,55 +109,85 @@ pub struct AnalysisReport {
     pub functions_with_errors: usize,
 }
 
-/// Reusable analysis session around the decompiler's architecture and program model.
-///
-/// The engine does not write files, print to stdout, or depend on a UI framework.
-/// Consume [`AnalysisEvent`] values to update a UI or stream results to storage.
+                                                                                     
+   
+                                                                                  
+                                                                                 
 pub struct AnalysisEngine {
     program: Program,
 }
 
 impl AnalysisEngine {
-    /// Open an ELF, PE, or Mach-O executable or shared library.
+                                                                
     pub fn open(path: &Path, language: Option<&str>) -> Result<Self> {
         Ok(Self { program: Program::open(path, language)? })
     }
 
-    /// Create an analysis session from executable image bytes.
+                                                               
     pub fn from_image(name: &str, bytes: Vec<u8>, language: Option<&str>) -> Result<Self> {
         Ok(Self { program: Program::from_image(name, bytes, language)? })
     }
 
-    /// Wrap an already configured [`Program`].
+    pub fn open_with(path: &Path, language: Option<&str>, loading: SymbolLoading) -> Result<Self> {
+        Ok(Self { program: Program::open_with(path, language, loading)? })
+    }
+
+    pub fn from_image_with(name: &str, bytes: Vec<u8>, language: Option<&str>, loading: SymbolLoading) -> Result<Self> {
+        Ok(Self { program: Program::from_image_with(name, bytes, language, loading)? })
+    }
+
+    pub fn from_raw_bytes(bytes: Vec<u8>, language: &str, base_address: u64) -> Result<Self> {
+        Ok(Self { program: Program::from_raw_bytes(bytes, language, base_address)? })
+    }
+
+                                               
     pub fn from_program(program: Program) -> Self {
         Self { program }
     }
 
-    /// Access the underlying program for advanced architecture-specific features.
+                                                                                  
     pub fn program(&self) -> &Program {
         &self.program
     }
 
-    /// Access the underlying program mutably for advanced architecture-specific features.
+                                                                                          
     pub fn program_mut(&mut self) -> &mut Program {
         &mut self.program
     }
 
-    /// Run configured analysis passes and emit one owned result per function.
-    ///
-    /// The callback is invoked synchronously on the calling thread. It can forward
-    /// events to an application channel, update a progress display, or stream each
-    /// function's output to disk without retaining the entire binary's pseudocode.
+    pub fn analyze_function(&mut self, address: u64, options: &AnalysisOptions) -> Result<FunctionAnalysis> {
+        let function = self.program.ensure_function_at(address, None)?;
+        Ok(analyze_one(&mut self.program, &function, options))
+    }
+
+                                                                              
+       
+                                                                                   
+                                                                                   
+                                                                                   
     pub fn analyze(
         &mut self,
         options: &AnalysisOptions,
+        on_event: impl FnMut(AnalysisEvent),
+    ) -> Result<AnalysisReport> {
+        self.analyze_selected(options, &AnalysisSelection::default(), on_event)
+    }
+
+    pub fn analyze_selected(
+        &mut self,
+        options: &AnalysisOptions,
+        selection: &AnalysisSelection,
         mut on_event: impl FnMut(AnalysisEvent),
     ) -> Result<AnalysisReport> {
         if options.discover_functions {
             self.program.discover_functions()?;
         }
 
-        let functions = self.program.functions()?;
+        let mut functions = self.program.functions()?;
+        if let Some(addresses) = &selection.function_addresses { functions.retain(|function| addresses.contains(&function.address)); }
+        if let Some(start) = selection.start_address { functions.retain(|function| function.address >= start); }
+        if let Some(end) = selection.end_address { functions.retain(|function| function.address < end); }
+        if let Some(maximum) = selection.max_functions { functions.truncate(maximum); }
         let data_symbols = if options.collect_data_symbols {
             self.program.data_symbols()?
         } else {
@@ -168,35 +218,7 @@ impl AnalysisEngine {
                 name: function.name.clone(),
             });
 
-            let mut result = FunctionAnalysis {
-                function: function.clone(),
-                size: None,
-                instructions: Vec::new(),
-                pseudocode: None,
-                errors: Vec::new(),
-            };
-
-            if options.disassemble {
-                match self.program.function_size(function.address) {
-                    Ok(size) if size > 0 => {
-                        result.size = Some(size);
-                        match self.program.disassemble_range(function.address, size) {
-                            Ok(instructions) => result.instructions = instructions,
-                            Err(error) => result.errors.push(format!("disassembly: {}", error.explain())),
-                        }
-                    }
-                    Ok(_) => result.errors.push("function has no measurable body".to_string()),
-                    Err(error) => result.errors.push(format!("function size: {}", error.explain())),
-                }
-            }
-
-            if options.decompile {
-                match self.program.decompile(function.address) {
-                    Ok(pseudocode) => result.pseudocode = Some(pseudocode),
-                    Err(error) => result.errors.push(format!("decompilation: {}", error.explain())),
-                }
-            }
-
+            let result = analyze_one(&mut self.program, function, options);
             if result.errors.is_empty() {
                 analyzed += 1;
             } else {
@@ -217,6 +239,30 @@ impl AnalysisEngine {
     }
 }
 
+fn analyze_one(program: &mut Program, function: &FunctionEntry, options: &AnalysisOptions) -> FunctionAnalysis {
+    let mut result = FunctionAnalysis { function: function.clone(), size: None, instructions: Vec::new(), pseudocode: None, errors: Vec::new() };
+    if options.disassemble {
+        match program.function_size(function.address) {
+            Ok(size) if size > 0 => {
+                result.size = Some(size);
+                match program.disassemble_range(function.address, size) {
+                    Ok(instructions) => result.instructions = instructions,
+                    Err(error) => result.errors.push(format!("disassembly: {}", error.explain())),
+                }
+            }
+            Ok(_) => result.errors.push("function has no measurable body".to_string()),
+            Err(error) => result.errors.push(format!("function size: {}", error.explain())),
+        }
+    }
+    if options.decompile {
+        match program.decompile(function.address) {
+            Ok(pseudocode) => result.pseudocode = Some(pseudocode),
+            Err(error) => result.errors.push(format!("decompilation: {}", error.explain())),
+        }
+    }
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use super::AnalysisOptions;
@@ -230,6 +276,18 @@ mod tests {
         assert!(!options.extract_strings);
         assert!(!options.collect_data_symbols);
         assert!(!options.build_call_graph);
+    }
+
+    #[test]
+    fn selection_builders_compose_address_and_count_filters() {
+        let selection = super::AnalysisSelection::default()
+            .with_function_addresses([0x100, 0x200])
+            .with_address_range(0x80, 0x300)
+            .with_max_functions(1);
+        assert_eq!(selection.function_addresses, Some(vec![0x100, 0x200]));
+        assert_eq!(selection.start_address, Some(0x80));
+        assert_eq!(selection.end_address, Some(0x300));
+        assert_eq!(selection.max_functions, Some(1));
     }
 
     #[test]

@@ -455,6 +455,49 @@ impl Program {
         None
     }
 
+    pub fn entry_point(&self) -> Option<u64> { self.entry }
+
+    pub fn find_function_by_name(&self, name: &str) -> Result<Option<FunctionEntry>> {
+        Ok(self.functions()?.into_iter().find(|function| function.name == name))
+    }
+
+    pub fn find_function_at(&self, address: u64) -> Result<Option<FunctionEntry>> {
+        Ok(self.functions()?.into_iter().find(|function| function.address == address))
+    }
+
+    pub fn ensure_function_at(&mut self, address: u64, name: Option<&str>) -> Result<FunctionEntry> {
+        self.function_at(address)?;
+        if let Some(name) = name.filter(|name| !name.is_empty()) { self.set_function_name(address, name)?; }
+        self.find_function_at(address)?.ok_or_else(|| Error::Lowlevel(format!("function at {address:#x} was not registered")))
+    }
+
+    pub fn read_memory(&self, address: u64, length: u64) -> Result<Vec<u8>> {
+        let length = usize::try_from(length).map_err(|_| Error::Lowlevel("requested memory range is too large".to_string()))?;
+        let loader = self.architecture.loader.as_ref().ok_or_else(|| Error::Lowlevel("missing load image".to_string()))?;
+        let mut bytes = Vec::new();
+        bytes.try_reserve_exact(length).map_err(|error| Error::Lowlevel(format!("unable to allocate memory buffer: {error}")))?;
+        bytes.resize(length, 0);
+        loader.load_fill(&mut bytes, &self.data_address(address)?)?;
+        Ok(bytes)
+    }
+
+    pub fn read_code(&self, address: u64, length: u64) -> Result<Vec<u8>> {
+        let length = usize::try_from(length).map_err(|_| Error::Lowlevel("requested code range is too large".to_string()))?;
+        let loader = self.architecture.loader.as_ref().ok_or_else(|| Error::Lowlevel("missing load image".to_string()))?;
+        let mut bytes = Vec::new();
+        bytes.try_reserve_exact(length).map_err(|error| Error::Lowlevel(format!("unable to allocate code buffer: {error}")))?;
+        bytes.resize(length, 0);
+        loader.load_fill(&mut bytes, &self.code_address(address)?)?;
+        Ok(bytes)
+    }
+
+    pub fn register_info(&self, name: &str) -> Result<PcodeVarnode> {
+        let register = self.architecture.translator()?.get_register(name)?;
+        Ok(pcode_varnode(&register))
+    }
+
+    pub fn set_print_language(&mut self, name: &str) -> Result<()> { self.architecture.set_print_language(name) }
+
     pub fn data_symbols(&self) -> Result<Vec<DataEntry>> {
         Ok(self
             .data
@@ -468,9 +511,9 @@ impl Program {
             .collect())
     }
 
-    /// Extract printable, NUL-terminated UTF-8 strings from known string sections.
-    /// Reads sections in chunks so large shared libraries do not need to be loaded
-    /// into a second in-memory buffer.
+                                                                                   
+                                                                                   
+                                       
     pub fn strings(&self) -> Result<Vec<StringEntry>> {
         const CHUNK_SIZE: usize = 64 * 1024;
         let loader = self.architecture.loader.as_ref()
@@ -784,7 +827,7 @@ impl Program {
         Ok(instructions)
     }
 
-    /// Return the byte size of a known function starting at `address`.
+                                                                       
     pub fn function_size(&mut self, address: u64) -> Result<u64> {
         let addr = self.code_address(address)?;
         let scope = self.global_scope()?;
@@ -796,7 +839,7 @@ impl Program {
             .with_function(sym, |function, _architecture| Ok(function.get_size().max(0) as u64))
     }
 
-    /// Disassemble a byte range, stopping after the instruction covering its end.
+                                                                                  
     pub fn disassemble_range(&self, address: u64, byte_length: u64) -> Result<Vec<Instruction>> {
         panic_guard(|| {
             let translate = self.architecture.translator()?;
