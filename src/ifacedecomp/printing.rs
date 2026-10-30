@@ -604,16 +604,23 @@ pub fn ifc_analyze_all(args: &mut IStream, status: &mut IfaceStatus) -> IfaceRes
     std::fs::create_dir_all(directory).map_err(|err| {
         IfaceError::Execution(format!("Cannot create analysis folder {}: {err}", directory.display()))
     })?;
-    let c_path = directory.join("all.c");
-    let asm_path = directory.join("all.asm");
-    let mut c_file = std::fs::File::create(&c_path).map_err(|err| IfaceError::Execution(format!("Cannot create {}: {err}", c_path.display())))?;
-    let mut asm_file = std::fs::File::create(&asm_path).map_err(|err| IfaceError::Execution(format!("Cannot create {}: {err}", asm_path.display())))?;
-
     let filename = {
         let dcp = decomp_data(status);
         let glb = conf_mut(dcp, "No architecture loaded")?;
         glb.loader.as_ref().ok_or_else(|| IfaceError::Execution("No load image present".to_string()))?.get_file_name().to_string()
     };
+    let binary_name = std::path::Path::new(&filename)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .filter(|name| !name.is_empty())
+        .unwrap_or("binary");
+    let c_path = directory.join(format!("{binary_name}.c"));
+    let asm_path = directory.join(format!("{binary_name}.asm"));
+    let csv_path = directory.join(format!("{binary_name}.csv"));
+    let mut c_file = std::fs::File::create(&c_path).map_err(|err| IfaceError::Execution(format!("Cannot create {}: {err}", c_path.display())))?;
+    let mut asm_file = std::fs::File::create(&asm_path).map_err(|err| IfaceError::Execution(format!("Cannot create {}: {err}", asm_path.display())))?;
+    let mut csv_file = std::fs::File::create(&csv_path).map_err(|err| IfaceError::Execution(format!("Cannot create {}: {err}", csv_path.display())))?;
+
     out_write(&optr, &format!("Loading program metadata for {filename}...\n"));
     let mut program = Program::open(std::path::Path::new(&filename), None)
         .map_err(|err| IfaceError::Execution(format!("Cannot open program for discovery: {}", err.explain())))?;
@@ -625,34 +632,25 @@ pub fn ifc_analyze_all(args: &mut IStream, status: &mut IfaceStatus) -> IfaceRes
     let calls = program.call_graph().map_err(|err| IfaceError::Execution(format!("Cannot build call graph: {}", err.explain())))?;
 
     let csv = |value: &str| format!("\"{}\"", value.replace('\"', "\"\""));
-    let mut functions_file = std::fs::File::create(directory.join("functions.csv")).map_err(|err| IfaceError::Execution(format!("Cannot create functions.csv: {err}")))?;
     use std::io::Write as _;
-    functions_file.write_all(b"name,address,source,symbol\n").map_err(|err| IfaceError::Execution(err.to_string()))?;
+    csv_file.write_all(b"type,name,address,size,details\n").map_err(|err| IfaceError::Execution(err.to_string()))?;
     let names: std::collections::BTreeMap<u64, String> = functions.iter().map(|f| (f.address, f.name.clone())).collect();
     for function in &functions {
-        writeln!(functions_file, "{},{:#x},{:?},{}", csv(&function.name), function.address, function.source, csv(function.symbol.as_deref().unwrap_or("")))
+        writeln!(csv_file, "function,{},{:#x},,source={:?};symbol={}", csv(&function.name), function.address, function.source, csv(function.symbol.as_deref().unwrap_or("")))
             .map_err(|err| IfaceError::Execution(err.to_string()))?;
     }
-
-    let mut data_file = std::fs::File::create(directory.join("data.csv")).map_err(|err| IfaceError::Execution(format!("Cannot create data.csv: {err}")))?;
-    data_file.write_all(b"name,address,size,symbol\n").map_err(|err| IfaceError::Execution(err.to_string()))?;
     for item in &data {
-        writeln!(data_file, "{},{:#x},{},{}", csv(&item.name), item.address, item.size, csv(item.symbol.as_deref().unwrap_or("")))
+        writeln!(csv_file, "data,{},{:#x},{},symbol={}", csv(&item.name), item.address, item.size, csv(item.symbol.as_deref().unwrap_or("")))
             .map_err(|err| IfaceError::Execution(err.to_string()))?;
     }
-
-    let mut strings_file = std::fs::File::create(directory.join("strings.csv")).map_err(|err| IfaceError::Execution(format!("Cannot create strings.csv: {err}")))?;
-    strings_file.write_all(b"address,value\n").map_err(|err| IfaceError::Execution(err.to_string()))?;
     for item in &strings {
-        writeln!(strings_file, "{:#x},{}", item.address, csv(&item.value)).map_err(|err| IfaceError::Execution(err.to_string()))?;
+        writeln!(csv_file, "string,{},,{},{:#x}", csv(&item.value), item.value.len(), item.address)
+            .map_err(|err| IfaceError::Execution(err.to_string()))?;
     }
-
-    let mut calls_file = std::fs::File::create(directory.join("calls.csv")).map_err(|err| IfaceError::Execution(format!("Cannot create calls.csv: {err}")))?;
-    calls_file.write_all(b"caller,caller_address,callee,callee_address,call_site\n").map_err(|err| IfaceError::Execution(err.to_string()))?;
     for edge in &calls {
         let caller = names.get(&edge.caller).map(String::as_str).unwrap_or("unknown");
         let callee = names.get(&edge.callee).map(String::as_str).unwrap_or("external_or_unknown");
-        writeln!(calls_file, "{},{:#x},{},{:#x},{:#x}", csv(caller), edge.caller, csv(callee), edge.callee, edge.call_site)
+        writeln!(csv_file, "call,{} -> {},{:#x},,callee_address={:#x};call_site={:#x}", csv(caller), csv(callee), edge.caller, edge.callee, edge.call_site)
             .map_err(|err| IfaceError::Execution(err.to_string()))?;
     }
 
@@ -694,12 +692,9 @@ pub fn ifc_analyze_all(args: &mut IStream, status: &mut IfaceStatus) -> IfaceRes
     }
     c_file.flush().map_err(|err| IfaceError::Execution(err.to_string()))?;
     asm_file.flush().map_err(|err| IfaceError::Execution(err.to_string()))?;
-    functions_file.flush().map_err(|err| IfaceError::Execution(err.to_string()))?;
-    data_file.flush().map_err(|err| IfaceError::Execution(err.to_string()))?;
-    strings_file.flush().map_err(|err| IfaceError::Execution(err.to_string()))?;
-    calls_file.flush().map_err(|err| IfaceError::Execution(err.to_string()))?;
+    csv_file.flush().map_err(|err| IfaceError::Execution(err.to_string()))?;
     out_write(&optr, &format!(
-        "\nAnalysis finished: {processed}/{total} functions decompiled; {skipped} operation(s) skipped.\nData symbols: {} | Strings: {} | Call edges: {}\nOutput folder: {}\nFiles: all.c, all.asm, functions.csv, calls.csv, data.csv, strings.csv\n",
+        "\nAnalysis finished: {processed}/{total} functions decompiled; {skipped} operation(s) skipped.\nData symbols: {} | Strings: {} | Call edges: {}\nOutput folder: {}\nFiles: {binary_name}.c, {binary_name}.asm, {binary_name}.csv\n",
         data.len(), strings.len(), calls.len(), directory.display()
     ));
     Ok(())
