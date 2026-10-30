@@ -194,3 +194,30 @@ pub fn ifc_execute_test_command(args: &mut IStream, status: &mut IfaceStatus) ->
     }
     status.push_script(Some(CharSource::from_bytes(script.into_bytes())), "test> ")
 }
+
+#[cfg(test)]
+mod command_registration_tests {
+    use crate::interface::{new_out_stream, IfaceError, IfaceStatus};
+
+    #[test]
+    fn open_alias_is_registered_and_dispatched() {
+        let mut status = IfaceStatus::new_commands("> ", new_out_stream(), vec!["open".to_string()]);
+        super::register_console_commands(&mut status);
+        let result = status.run_command();
+        assert!(
+            matches!(result, Err(IfaceError::Parse(message)) if message.contains("Usage: open <file>")),
+            "open alias was not dispatched to its handler: {result:?}"
+        );
+    }
+
+    #[test]
+    fn load_file_command_is_registered_and_dispatched() {
+        let mut status = IfaceStatus::new_commands("> ", new_out_stream(), vec!["load file".to_string()]);
+        super::register_console_commands(&mut status);
+        let result = status.run_command();
+        assert!(
+            matches!(result, Err(IfaceError::Parse(message)) if message.contains("Usage: open <file>")),
+            "load file command was not dispatched to its handler: {result:?}"
+        );
+    }
+}

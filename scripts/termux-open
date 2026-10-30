@@ -30,6 +30,6 @@ mkdir -p "$TMP_DIR"
 INIT_SCRIPT=$(mktemp "$TMP_DIR/ghidra-open.XXXXXX")
 trap 'rm -f "$INIT_SCRIPT"' EXIT HUP INT TERM
 
-# The console's command parser accepts a single filename token.
-printf 'open %s\n' "$FILE" > "$INIT_SCRIPT"
+# Use the canonical command so this launcher also works with older installed builds.
+printf 'load file %s\n' "$FILE" > "$INIT_SCRIPT"
 "$DECOMPILER" -i "$INIT_SCRIPT"
