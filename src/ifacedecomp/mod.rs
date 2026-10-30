@@ -531,3 +531,26 @@ pub fn register_all_commands(status: &mut IfaceStatus) {
 pub fn ifc_comment(_args: &mut IStream, _status: &mut IfaceStatus) -> IfaceResult<()> {
     Ok(())
 }
+
+#[cfg(test)]
+mod command_registration_tests {
+    use crate::interface::{new_out_stream, IfaceError, IfaceStatus};
+
+    #[test]
+    fn load_addr_and_load_function_are_dispatched() {
+        for command in ["load addr 0x640", "load function add"] {
+            let mut status = IfaceStatus::new_commands(
+                "> ",
+                new_out_stream(),
+                vec![command.to_string()],
+            );
+            super::register_all_commands(&mut status);
+
+            let result = status.run_command();
+            assert!(
+                matches!(result, Err(IfaceError::Execution(_))),
+                "{command:?} was not dispatched to its handler: {result:?}"
+            );
+        }
+    }
+}
