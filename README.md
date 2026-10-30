@@ -73,7 +73,23 @@ let report = engine.analyze(&AnalysisOptions::default(), |event| {
 let _ = report;
 ```
 
-`AnalysisOptions` can independently enable function discovery, disassembly, decompilation, string extraction, data symbols, and call-graph construction. `AnalysisEngine::from_image` accepts in-memory executable bytes, and `AnalysisEngine::from_program` wraps an already configured `Program`. Function results are emitted one at a time, so applications do not need to retain every function's pseudocode in memory.
+`AnalysisOptions` can independently enable function discovery, disassembly, decompilation, string extraction, data symbols, and call-graph construction. Use `AnalysisOptions::low_memory()` on constrained phones: it keeps function discovery and decompilation enabled, but skips the separate disassembly pass (which decodes the same bodies again) and skips optional strings, data-symbol, and call-graph collections. The default profile keeps every pass enabled. `AnalysisEngine::from_image` accepts in-memory executable bytes, and `AnalysisEngine::from_program` wraps an already configured `Program`. Function results are emitted one at a time, so applications do not need to retain every function's pseudocode in memory.
+
+### Build profiles
+
+The default Cargo feature set is `desktop`, preserving the existing x86, ARM, AArch64, MIPS, PowerPC, and RISC-V support. For Android/ARM devices, build only the ARM language specifications:
+
+```sh
+cargo build --release --no-default-features --features mobile --example decomp
+```
+
+This avoids embedding unrelated processor specifications in the executable. It does not change the decompiler algorithms or output for ARM binaries. For an even smaller executable at the cost of some runtime throughput, use the size-oriented profile:
+
+```sh
+cargo build --profile release-small --no-default-features --features mobile --example decomp
+```
+
+Use the ordinary `--release` profile when maximum decompilation speed is the priority. Desktop users can keep the default `--release` build; no processor support is removed from the desktop defaults.
 
 ## Library usage
 

@@ -38,6 +38,25 @@ impl Default for AnalysisOptions {
     }
 }
 
+impl AnalysisOptions {
+    /// A lower-memory whole-program pass for phones and other constrained devices.
+    ///
+    /// Function discovery and C-like decompilation remain enabled. The separate
+    /// disassembly pass is disabled because it decodes the same function bodies
+    /// again, and optional string, data-symbol, and call-graph collections are
+    /// skipped. Enable those fields individually when their results are needed.
+    pub fn low_memory() -> Self {
+        Self {
+            discover_functions: true,
+            disassemble: false,
+            decompile: true,
+            extract_strings: false,
+            collect_data_symbols: false,
+            build_call_graph: false,
+        }
+    }
+}
+
 /// Results for one function. Errors are local to this function and do not abort
 /// analysis of the remaining functions.
 #[derive(Clone, Debug)]
@@ -195,5 +214,32 @@ impl AnalysisEngine {
             analyzed_functions: analyzed,
             functions_with_errors: with_errors,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::AnalysisOptions;
+
+    #[test]
+    fn low_memory_profile_keeps_decompilation_and_skips_optional_passes() {
+        let options = AnalysisOptions::low_memory();
+        assert!(options.discover_functions);
+        assert!(options.decompile);
+        assert!(!options.disassemble);
+        assert!(!options.extract_strings);
+        assert!(!options.collect_data_symbols);
+        assert!(!options.build_call_graph);
+    }
+
+    #[test]
+    fn default_profile_keeps_all_analysis_passes_enabled() {
+        let options = AnalysisOptions::default();
+        assert!(options.discover_functions);
+        assert!(options.disassemble);
+        assert!(options.decompile);
+        assert!(options.extract_strings);
+        assert!(options.collect_data_symbols);
+        assert!(options.build_call_graph);
     }
 }

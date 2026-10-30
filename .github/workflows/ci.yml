@@ -16,3 +16,5 @@ jobs:
         run: cargo test --lib
       - name: Build decompiler CLI
         run: cargo build --release --example decomp
+      - name: Check ARM-focused mobile build
+        run: cargo check --no-default-features --features mobile --examples

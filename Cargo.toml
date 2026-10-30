@@ -20,12 +20,25 @@ rustc-demangle = { version = "0.1.28", optional = true }
 [profile.test]
 opt-level = 1
 
+# Smaller distributable builds for memory- and storage-constrained devices.
+# This trades some runtime speed for a smaller executable; use `--release`
+# when maximum decompilation throughput matters more than binary size.
+[profile.release-small]
+inherits = "release"
+opt-level = "s"
+strip = "symbols"
+
 [profile.profiling]
 inherits = "release"
 debug = true
 
 [features]
-default = ["demangle", "x86", "arm", "aarch64", "mips", "powerpc", "riscv"]
+default = ["desktop"]
+# Full desktop processor set, kept equivalent to the historical defaults.
+desktop = ["demangle", "x86", "arm", "aarch64", "mips", "powerpc", "riscv"]
+# ARM-focused build for Android phones and ARM-based single-board computers.
+# Use with --no-default-features so desktop processor data is not embedded.
+mobile = ["demangle", "arm", "aarch64"]
 demangle = ["dep:cpp_demangle", "dep:rustc-demangle"]
 all-processors = ["6502", "68000", "8048", "8051", "8085", "aarch64", "arm", "atmel", "bpf", "cp1600", "cr16", "dalvik", "data", "ebpf", "hcs08", "hcs12", "hexagon", "jvm", "loongarch", "m16c", "m8c", "mc6800", "mcs96", "mips", "nds32", "pa-risc", "pic", "powerpc", "riscv", "sparc", "superh", "superh4", "ti_msp430", "toy", "tricore", "v850", "x86", "xtensa", "z80"]
 "6502" = []
