@@ -11,6 +11,7 @@
 )]
 
 pub mod action;
+pub mod analysis;
 pub mod address;
 pub mod architecture;
 pub mod arena;
