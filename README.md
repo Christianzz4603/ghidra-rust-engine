@@ -160,9 +160,18 @@ open /path/to/library.so
 analyze
 ```
 
-The command seeds discovery from the executable entry point and all function symbols, follows direct call targets and code-address references, then streams combined C pseudocode to `all.c` and assembly to `all.asm` in `/sdcard/home/analysis` by default. Pass another output directory with `analyze <directory>`, or set `GHIDRA_DECOMPILER_OUTPUT_DIR`.
+The command seeds discovery from the executable entry point and all function symbols, follows direct call targets and code-address references, then exports a navigable analysis set to `/sdcard/home/analysis` by default. Pass another output directory with `analyze <directory>`, or set `GHIDRA_DECOMPILER_OUTPUT_DIR`.
 
-This is recursive code discovery, not yet identical to IDA's full auto-analysis. Unreferenced functions, functions reachable only through unresolved indirect calls, and code hidden behind unusual control-flow patterns may still be missed. The output should be treated as a best-effort analysis, not a guarantee that every executable byte has been classified.
+Generated files:
+
+- `all.c`: combined decompiled C pseudocode.
+- `all.asm`: disassembly for discovered functions.
+- `functions.csv`: discovered function names, addresses, origins, and original symbols.
+- `calls.csv`: caller/callee relationships and call-site addresses.
+- `data.csv`: known global data and import/GOT symbols.
+- `strings.csv`: printable NUL-terminated UTF-8 strings from recognized string sections.
+
+This is a growing static-analysis pipeline, not yet equivalent to IDA Pro. Unreferenced functions, functions reachable only through unresolved indirect calls, non-UTF-8/UTF-16 strings, complex jump tables, and code hidden behind unusual control-flow patterns may still be missed. The output is best-effort and does not claim every executable byte has been classified.
 
 ## Tests
 

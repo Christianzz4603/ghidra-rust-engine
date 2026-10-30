@@ -81,6 +81,13 @@ pub struct DataEntry {
     pub size: u64,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct StringEntry {
+    pub address: u64,
+    pub value: String,
+}
+
 struct DataRecord {
     sym: SymbolId,
     name: String,
@@ -459,6 +466,49 @@ impl Program {
                 size: record.size,
             })
             .collect())
+    }
+
+    /// Extract printable, NUL-terminated UTF-8 strings from known string sections.
+    /// Reads sections in chunks so large shared libraries do not need to be loaded
+    /// into a second in-memory buffer.
+    pub fn strings(&self) -> Result<Vec<StringEntry>> {
+        const CHUNK_SIZE: usize = 64 * 1024;
+        let loader = self.architecture.loader.as_ref()
+            .ok_or_else(|| Error::Lowlevel("missing load image".to_string()))?;
+        let mut result = Vec::new();
+        for section in &self.string_sections {
+            let mut offset = section.start;
+            let mut pending = Vec::new();
+            let mut pending_address = offset;
+            while offset < section.end {
+                let length = (section.end - offset).min(CHUNK_SIZE as u64) as usize;
+                let mut chunk = vec![0u8; length];
+                loader.load_fill(&mut chunk, &self.data_address(offset)?)?;
+                for (index, byte) in chunk.into_iter().enumerate() {
+                    let address = offset + index as u64;
+                    if byte == 0 {
+                        if pending.len() >= MIN_STRING_LENGTH {
+                            if let Ok(value) = std::str::from_utf8(&pending) {
+                                if value.chars().all(|character| !character.is_control() || matches!(character, '\t' | '\n' | '\r')) {
+                                    result.push(StringEntry { address: pending_address, value: value.to_string() });
+                                }
+                            }
+                        }
+                        pending.clear();
+                        pending_address = address + 1;
+                    } else if pending.len() < MAX_STRING_LENGTH {
+                        pending.push(byte);
+                    } else {
+                        pending.clear();
+                        pending_address = address + 1;
+                    }
+                }
+                offset += length as u64;
+            }
+        }
+        result.sort_by_key(|entry| entry.address);
+        result.dedup_by_key(|entry| entry.address);
+        Ok(result)
     }
 
     pub fn set_symbol_name(&mut self, address: u64, name: &str) -> Result<()> {

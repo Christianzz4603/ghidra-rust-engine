@@ -591,7 +591,7 @@ pub fn ifc_produce_c(args: &mut IStream, status: &mut IfaceStatus) -> IfaceResul
     result
 }
 
-/// Recursively discover reachable functions, then export their pseudocode and assembly.
+/// Recursively discover reachable functions and export a navigable analysis database.
 pub fn ifc_analyze_all(args: &mut IStream, status: &mut IfaceStatus) -> IfaceResult<()> {
     let optr = status.optr.clone();
     let mut output_dir = String::new();
@@ -606,35 +606,59 @@ pub fn ifc_analyze_all(args: &mut IStream, status: &mut IfaceStatus) -> IfaceRes
     })?;
     let c_path = directory.join("all.c");
     let asm_path = directory.join("all.asm");
-    let mut c_file = std::fs::File::create(&c_path).map_err(|err| {
-        IfaceError::Execution(format!("Cannot create {}: {err}", c_path.display()))
-    })?;
-    let mut asm_file = std::fs::File::create(&asm_path).map_err(|err| {
-        IfaceError::Execution(format!("Cannot create {}: {err}", asm_path.display()))
-    })?;
+    let mut c_file = std::fs::File::create(&c_path).map_err(|err| IfaceError::Execution(format!("Cannot create {}: {err}", c_path.display())))?;
+    let mut asm_file = std::fs::File::create(&asm_path).map_err(|err| IfaceError::Execution(format!("Cannot create {}: {err}", asm_path.display())))?;
 
     let filename = {
         let dcp = decomp_data(status);
         let glb = conf_mut(dcp, "No architecture loaded")?;
-        glb.loader
-            .as_ref()
-            .ok_or_else(|| IfaceError::Execution("No load image present".to_string()))?
-            .get_file_name()
-            .to_string()
+        glb.loader.as_ref().ok_or_else(|| IfaceError::Execution("No load image present".to_string()))?.get_file_name().to_string()
     };
     out_write(&optr, &format!("Loading program metadata for {filename}...\n"));
     let mut program = Program::open(std::path::Path::new(&filename), None)
         .map_err(|err| IfaceError::Execution(format!("Cannot open program for discovery: {}", err.explain())))?;
     out_write(&optr, "Discovering functions from entry point, symbols, and reachable code...\n");
-    program.discover_functions()
-        .map_err(|err| IfaceError::Execution(format!("Function discovery failed: {}", err.explain())))?;
-    let functions = program.functions()
-        .map_err(|err| IfaceError::Execution(format!("Cannot list functions: {}", err.explain())))?;
-    if functions.is_empty() {
-        out_write(&optr, "No functions were discovered. The binary may have no usable entry point or function symbols.\n");
-        return Ok(());
+    program.discover_functions().map_err(|err| IfaceError::Execution(format!("Function discovery failed: {}", err.explain())))?;
+    let functions = program.functions().map_err(|err| IfaceError::Execution(format!("Cannot list functions: {}", err.explain())))?;
+    let data = program.data_symbols().map_err(|err| IfaceError::Execution(format!("Cannot list data symbols: {}", err.explain())))?;
+    let strings = program.strings().map_err(|err| IfaceError::Execution(format!("Cannot extract strings: {}", err.explain())))?;
+    let calls = program.call_graph().map_err(|err| IfaceError::Execution(format!("Cannot build call graph: {}", err.explain())))?;
+
+    let csv = |value: &str| format!("\"{}\"", value.replace('\"', "\"\""));
+    let mut functions_file = std::fs::File::create(directory.join("functions.csv")).map_err(|err| IfaceError::Execution(format!("Cannot create functions.csv: {err}")))?;
+    use std::io::Write as _;
+    functions_file.write_all(b"name,address,source,symbol\n").map_err(|err| IfaceError::Execution(err.to_string()))?;
+    let names: std::collections::BTreeMap<u64, String> = functions.iter().map(|f| (f.address, f.name.clone())).collect();
+    for function in &functions {
+        writeln!(functions_file, "{},{:#x},{:?},{}", csv(&function.name), function.address, function.source, csv(function.symbol.as_deref().unwrap_or("")))
+            .map_err(|err| IfaceError::Execution(err.to_string()))?;
     }
 
+    let mut data_file = std::fs::File::create(directory.join("data.csv")).map_err(|err| IfaceError::Execution(format!("Cannot create data.csv: {err}")))?;
+    data_file.write_all(b"name,address,size,symbol\n").map_err(|err| IfaceError::Execution(err.to_string()))?;
+    for item in &data {
+        writeln!(data_file, "{},{:#x},{},{}", csv(&item.name), item.address, item.size, csv(item.symbol.as_deref().unwrap_or("")))
+            .map_err(|err| IfaceError::Execution(err.to_string()))?;
+    }
+
+    let mut strings_file = std::fs::File::create(directory.join("strings.csv")).map_err(|err| IfaceError::Execution(format!("Cannot create strings.csv: {err}")))?;
+    strings_file.write_all(b"address,value\n").map_err(|err| IfaceError::Execution(err.to_string()))?;
+    for item in &strings {
+        writeln!(strings_file, "{:#x},{}", item.address, csv(&item.value)).map_err(|err| IfaceError::Execution(err.to_string()))?;
+    }
+
+    let mut calls_file = std::fs::File::create(directory.join("calls.csv")).map_err(|err| IfaceError::Execution(format!("Cannot create calls.csv: {err}")))?;
+    calls_file.write_all(b"caller,caller_address,callee,callee_address,call_site\n").map_err(|err| IfaceError::Execution(err.to_string()))?;
+    for edge in &calls {
+        let caller = names.get(&edge.caller).map(String::as_str).unwrap_or("unknown");
+        let callee = names.get(&edge.callee).map(String::as_str).unwrap_or("external_or_unknown");
+        writeln!(calls_file, "{},{:#x},{},{:#x},{:#x}", csv(caller), edge.caller, csv(callee), edge.callee, edge.call_site)
+            .map_err(|err| IfaceError::Execution(err.to_string()))?;
+    }
+
+    if functions.is_empty() {
+        out_write(&optr, "No functions were discovered. The binary may have no usable entry point or function symbols. Data and strings were still exported.\n");
+    }
     let mut processed = 0usize;
     let mut skipped = 0usize;
     let total = functions.len();
@@ -644,54 +668,39 @@ pub fn ifc_analyze_all(args: &mut IStream, status: &mut IfaceStatus) -> IfaceRes
         let address = function.address;
         let size = match program.function_size(address) {
             Ok(size) if size > 0 => size,
-            Ok(_) => {
-                skipped += 1;
-                continue;
-            }
-            Err(err) => {
-                skipped += 1;
-                out_write(&optr, &format!("Skipping {name}: {}\n", err.explain()));
-                continue;
-            }
+            Ok(_) => { skipped += 1; continue; }
+            Err(err) => { skipped += 1; out_write(&optr, &format!("Skipping {name}: {}\n", err.explain())); continue; }
         };
-
         match program.disassemble_range(address, size) {
             Ok(instructions) => {
-                asm_file.write_all(format!("\n; {name} @ {address:#x}\n").as_bytes())
-                    .map_err(|err| IfaceError::Execution(format!("Cannot write {}: {err}", asm_path.display())))?;
+                writeln!(asm_file, "\n; {name} @ {address:#x}").map_err(|err| IfaceError::Execution(err.to_string()))?;
                 for instruction in instructions {
                     let bytes = instruction.bytes.iter().map(|byte| format!("{byte:02x}")).collect::<Vec<_>>().join(" ");
-                    asm_file.write_all(format!("{:#010x}: {:<24} {} {}\n", instruction.address, bytes, instruction.mnemonic, instruction.operands).as_bytes())
-                        .map_err(|err| IfaceError::Execution(format!("Cannot write {}: {err}", asm_path.display())))?;
+                    writeln!(asm_file, "{:#010x}: {:<24} {} {}", instruction.address, bytes, instruction.mnemonic, instruction.operands)
+                        .map_err(|err| IfaceError::Execution(err.to_string()))?;
                 }
             }
-            Err(err) => {
-                skipped += 1;
-                out_write(&optr, &format!("Assembly skipped for {name}: {}\n", err.explain()));
-            }
+            Err(err) => { skipped += 1; out_write(&optr, &format!("Assembly skipped for {name}: {}\n", err.explain())); }
         }
-
         match program.decompile(address) {
             Ok(text) => {
-                c_file.write_all(format!("\n/* {name} @ {address:#x} */\n").as_bytes())
-                    .and_then(|_| c_file.write_all(text.as_bytes()))
-                    .map_err(|err| IfaceError::Execution(format!("Cannot write {}: {err}", c_path.display())))?;
+                writeln!(c_file, "\n/* {name} @ {address:#x} */").and_then(|_| c_file.write_all(text.as_bytes()))
+                    .map_err(|err| IfaceError::Execution(err.to_string()))?;
                 processed += 1;
             }
-            Err(err) => {
-                skipped += 1;
-                out_write(&optr, &format!("Decompilation skipped for {name}: {}\n", err.explain()));
-            }
+            Err(err) => { skipped += 1; out_write(&optr, &format!("Decompilation skipped for {name}: {}\n", err.explain())); }
         }
-        if processed % 25 == 0 && processed > 0 {
-            out_write(&optr, &format!("Progress: {processed}/{total} functions processed\n"));
-        }
+        if processed % 25 == 0 && processed > 0 { out_write(&optr, &format!("Progress: {processed}/{total} functions processed\n")); }
     }
-    c_file.flush().map_err(|err| IfaceError::Execution(format!("Cannot flush {}: {err}", c_path.display())))?;
-    asm_file.flush().map_err(|err| IfaceError::Execution(format!("Cannot flush {}: {err}", asm_path.display())))?;
+    c_file.flush().map_err(|err| IfaceError::Execution(err.to_string()))?;
+    asm_file.flush().map_err(|err| IfaceError::Execution(err.to_string()))?;
+    functions_file.flush().map_err(|err| IfaceError::Execution(err.to_string()))?;
+    data_file.flush().map_err(|err| IfaceError::Execution(err.to_string()))?;
+    strings_file.flush().map_err(|err| IfaceError::Execution(err.to_string()))?;
+    calls_file.flush().map_err(|err| IfaceError::Execution(err.to_string()))?;
     out_write(&optr, &format!(
-        "\nAnalysis finished: {processed} function(s) decompiled, {skipped} operation(s) skipped.\nC output: {}\nAssembly output: {}\n",
-        c_path.display(), asm_path.display()
+        "\nAnalysis finished: {processed}/{total} functions decompiled; {skipped} operation(s) skipped.\nData symbols: {} | Strings: {} | Call edges: {}\nOutput folder: {}\nFiles: all.c, all.asm, functions.csv, calls.csv, data.csv, strings.csv\n",
+        data.len(), strings.len(), calls.len(), directory.display()
     ));
     Ok(())
 }
