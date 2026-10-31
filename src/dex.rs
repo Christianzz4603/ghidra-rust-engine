@@ -494,7 +494,10 @@ mod tests {
             access_flags: 0,
             code_offset: 0,
         };
-        assert_eq!(method.java_signature(), "java.lang.String com.example.Foo.bar(int, byte[])");
+        assert_eq!(
+            method.java_signature(),
+            "java.lang.String com.example.Foo.bar(int, byte[])"
+        );
     }
     #[test]
     fn rejects_short_dex() {
