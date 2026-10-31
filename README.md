@@ -265,3 +265,21 @@ println!("{}", dex.smali()?);
 ```
 
 This is an initial DEX metadata and Smali export layer, not yet a full ApkTool replacement: resource table decoding, binary AndroidManifest.xml decoding, annotations, debug directives, and complete Dalvik opcode operand formatting are not implemented yet. Unknown or currently unsupported instruction formats are emitted as opcode placeholders rather than guessed.
+
+
+## Kotlin built-ins metadata API
+
+The `kotlin` module reads Kotlin `.kotlin_builtins` package-fragment metadata. It exposes the metadata version, class/function/property declaration names, and the underlying protobuf payload. It can emit a preliminary Kotlin-like declaration listing.
+
+```rust
+use ghidra_decompiler::KotlinBuiltins;
+
+let builtins = KotlinBuiltins::open("kotlin/collections/collections.kotlin_builtins")?;
+println!("Metadata version: {:?}", builtins.version());
+for class in builtins.classes() {
+    println!("{}", class.qualified_name);
+}
+println!("{}", builtins.decompile());
+```
+
+This is an initial metadata reader, not a complete Kotlin source decompiler. It does not recover executable function bodies, and full signatures, type aliases, annotations, extension receivers, and complete string-table transformations require additional metadata schema support. For JVM bytecode, use the JVM processor support when built with the `jvm` feature; `.kotlin_builtins` contains declarations and type metadata rather than method bytecode.
