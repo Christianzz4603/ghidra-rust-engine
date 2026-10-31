@@ -244,3 +244,24 @@ differential fuzzing); `.github/workflows/rust.yml` runs them. `ci/run-all-tests
 ## License
 
 Apache-2.0, as Ghidra. See `LICENSE` and `NOTICE`.
+
+
+## Android APK and DEX Smali API
+
+The `dex` module provides a separate DEX/APK inspection API. It parses DEX string, type, prototype, method, and class tables, exposes class and method metadata, and renders method code as Smali-style text. APK input is read through ZIP and supports multidex entries (`classes.dex`, `classes2.dex`, and later files).
+
+```rust
+use ghidra_decompiler::{Apk, DexFile};
+
+let apk = Apk::open("app.apk")?;
+for (index, dex) in apk.dex_files.iter().enumerate() {
+    println!("DEX {index}: {} classes", dex.classes().len());
+}
+apk.write_smali("decoded-smali")?;
+
+let dex = DexFile::open("classes.dex")?;
+println!("{}", dex.smali()?);
+# Ok::<(), ghidra_decompiler::Error>(())
+```
+
+This is an initial DEX metadata and Smali export layer, not yet a full ApkTool replacement: resource table decoding, binary AndroidManifest.xml decoding, annotations, debug directives, and complete Dalvik opcode operand formatting are not implemented yet. Unknown or currently unsupported instruction formats are emitted as opcode placeholders rather than guessed.

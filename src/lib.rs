@@ -31,6 +31,7 @@ pub mod cover;
 pub mod cpool;
 pub mod crc32;
 pub mod database;
+pub mod dex;
 pub mod double;
 pub mod dynamic;
 pub mod embedded_languages;
@@ -111,3 +112,5 @@ pub mod xml_arch;
 pub use analysis::{AnalysisEngine, AnalysisEvent, AnalysisOptions, AnalysisReport, AnalysisSelection, FunctionAnalysis};
 pub use error::{Error, Result};
 pub use program::{CallEdge, DataEntry, FunctionEntry, FunctionSource, Instruction, InstructionPcode, PcodeOperation, PcodeVarnode, Program, StringEntry, SymbolLoading};
+
+pub use dex::{Apk, DexClass, DexFile, DexMethod};
