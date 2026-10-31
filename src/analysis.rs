@@ -200,7 +200,12 @@ impl AnalysisEngine {
         }
 
         let mut functions = self.program.functions()?;
-        if let Some(addresses) = &selection.function_addresses { functions.retain(|function| addresses.contains(&function.address)); }
+        let selected_addresses = selection.function_addresses.as_ref().map(|addresses| {
+            addresses.iter().copied().collect::<std::collections::HashSet<_>>()
+        });
+        if let Some(addresses) = &selected_addresses {
+            functions.retain(|function| addresses.contains(&function.address));
+        }
         if let Some(start) = selection.start_address { functions.retain(|function| function.address >= start); }
         if let Some(end) = selection.end_address { functions.retain(|function| function.address < end); }
         if let Some(maximum) = selection.max_functions { functions.truncate(maximum); }
