@@ -1,7 +1,7 @@
 use crate::error::Result;
 use crate::opcodes::{OpCode, get_opname};
 use crate::program::{CallEdge, FunctionEntry, Instruction, Program};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ReferenceKind {
     Call,
@@ -122,12 +122,18 @@ impl<'a> BinaryIntelligence<'a> {
     pub fn analyze_all(&mut self) -> Result<IntelligenceReport> {
         let fs = self.program.functions()?;
         let calls = self.program.call_graph()?;
+        // Index edges once instead of rescanning the complete graph per function.
+        let mut calls_by_function: HashMap<u64, Vec<CallEdge>> = HashMap::new();
+        for edge in &calls {
+            calls_by_function.entry(edge.caller).or_default().push(edge.clone());
+        }
         let mut r = IntelligenceReport {
-            call_edges: calls.clone(),
+            call_edges: calls,
             ..Default::default()
         };
         for f in fs {
-            if let Err(error) = self.one(&f, &calls, &mut r) {
+            let function_calls = calls_by_function.get(&f.address).map(Vec::as_slice).unwrap_or(&[]);
+            if let Err(error) = self.one(&f, function_calls, &mut r) {
                 r.failures.push(FunctionAnalysisFailure {
                     address: f.address,
                     name: f.name.clone(),
@@ -143,11 +149,12 @@ impl<'a> BinaryIntelligence<'a> {
     pub fn analyze_one(&mut self, a: u64) -> Result<IntelligenceReport> {
         let f = self.program.ensure_function_at(a, None)?;
         let c = self.program.call_graph()?;
+        let function_calls: Vec<_> = c.iter().filter(|edge| edge.caller == f.address).cloned().collect();
         let mut r = IntelligenceReport {
-            call_edges: c.clone(),
+            call_edges: c,
             ..Default::default()
         };
-        self.one(&f, &c, &mut r)?;
+        self.one(&f, &function_calls, &mut r)?;
         Ok(r)
     }
     pub fn references_to(&mut self, a: u64) -> Result<Vec<CrossReference>> {
@@ -248,8 +255,8 @@ impl<'a> BinaryIntelligence<'a> {
 }
 fn flow(pc: &[crate::program::InstructionPcode]) -> DataFlowSummary {
     let (mut rd, mut wr, mut ca, mut br, mut rt, mut df, mut count) = (0, 0, 0, 0, 0, 0, 0);
-    let mut cs = BTreeSet::new();
-    let mut ts: BTreeMap<u32, TypeEvidence> = BTreeMap::new();
+    let mut cs = HashSet::new();
+    let mut ts: HashMap<u32, TypeEvidence> = HashMap::new();
     for i in pc {
         for p in &i.operations {
             count += 1;
@@ -305,8 +312,16 @@ fn flow(pc: &[crate::program::InstructionPcode]) -> DataFlowSummary {
         calls: ca,
         branches: br,
         returns: rt,
-        constants: cs.into_iter().collect(),
-        type_evidence: ts.into_values().collect(),
+        constants: {
+            let mut values: Vec<_> = cs.into_iter().collect();
+            values.sort_unstable();
+            values
+        },
+        type_evidence: {
+            let mut values: Vec<_> = ts.into_values().collect();
+            values.sort_unstable_by_key(|evidence| evidence.storage_size);
+            values
+        },
     }
 }
 fn fp(f: &FunctionEntry, i: &[Instruction], p: &[crate::program::InstructionPcode]) -> FunctionFingerprint {
@@ -357,8 +372,9 @@ fn cfg(f: u64, i: Vec<Instruction>) -> ControlFlowGraph {
             edges: vec![],
         };
     }
-    let mut leaders = BTreeSet::from([i[0].address]);
-    let mut targets = BTreeMap::new();
+    let mut leaders = HashSet::with_capacity(i.len() / 4 + 1);
+    leaders.insert(i[0].address);
+    let mut targets = HashMap::with_capacity(i.len() / 8 + 1);
     for (n, x) in i.iter().enumerate() {
         let m = x.mnemonic.to_ascii_lowercase();
         if let Some(t) = hex(&x.operands)
@@ -493,6 +509,24 @@ fn term(m: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn flow_constants_are_sorted_and_unique() {
+        use crate::program::{InstructionPcode, PcodeOperation, PcodeVarnode};
+        let pc = vec![InstructionPcode {
+            address: 0,
+            length: 4,
+            operations: vec![PcodeOperation {
+                opcode: OpCode::Copy,
+                output: None,
+                inputs: vec![
+                    PcodeVarnode { space: "const".into(), offset: 9, size: 8 },
+                    PcodeVarnode { space: "const".into(), offset: 2, size: 8 },
+                ],
+                space: None,
+            }],
+        }];
+        assert_eq!(flow(&pc).constants, vec![2, 9]);
+    }
     #[test]
     fn parses_hex() {
         assert_eq!(hex("r0, 0x1234"), Some(0x1234));

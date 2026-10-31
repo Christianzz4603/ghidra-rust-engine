@@ -205,6 +205,14 @@ impl AssemblyEmit for InstructionText {
     }
 }
 
+/// Sink used by analysis passes that only need instruction boundaries.
+struct NullAssemblyEmit;
+
+impl AssemblyEmit for NullAssemblyEmit {
+    #[inline]
+    fn dump(&mut self, _addr: &Address, _mnem: &str, _body: &str) {}
+}
+
 struct OperationCollector<'a> {
     manager: &'a AddrSpaceManager,
     operations: Vec<PcodeOperation>,
@@ -981,6 +989,7 @@ impl Program {
     pub fn scan_code_sections(&self, mut on_gap: impl FnMut(&DisassemblyGap) -> Result<()>) -> Result<CodeScanSummary> {
         panic_guard(|| {
             let translate = self.architecture.translator()?;
+            let mut sink = NullAssemblyEmit;
             let alignment = if self.language_id().to_ascii_lowercase().contains("aarch64") {
                 4u64
             } else {
@@ -1002,11 +1011,7 @@ impl Program {
                 let mut gap_start = None;
                 let mut gap_length = 0u64;
                 while remaining > 0 {
-                    let mut text = InstructionText {
-                        mnemonic: String::new(),
-                        operands: String::new(),
-                    };
-                    let decoded = translate.print_assembly(&mut text, &current);
+                    let decoded = translate.print_assembly(&mut sink, &current);
                     let length = decoded
                         .ok()
                         .filter(|length| *length > 0)
