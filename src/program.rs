@@ -122,6 +122,22 @@ pub struct PcodeOperation {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct DisassemblyGap {
+    pub address: u64,
+    pub length: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct DisassemblyReport {
+    pub instructions: Vec<Instruction>,
+    pub gaps: Vec<DisassemblyGap>,
+    pub requested_bytes: u64,
+    pub decoded_bytes: u64,
+}
+
 pub struct InstructionPcode {
     pub address: u64,
     pub length: usize,
@@ -853,6 +869,82 @@ impl Program {
             current = current.add(i64::from(length));
         }
         Ok(instructions)
+    }
+
+    /// Returns executable section ranges discovered by the object loader.
+    /// These are image ranges, not guarantees that every byte contains an instruction.
+    pub fn code_sections(&self) -> &[std::ops::Range<u64>] {
+        &self.code_sections
+    }
+
+    /// Disassemble as much of a range as possible, recording undecodable bytes
+    /// instead of abandoning the entire range at the first invalid instruction.
+    ///
+    /// AArch64 is resynchronized on four-byte boundaries. Other architectures
+    /// use one-byte resynchronization because their instruction widths may vary.
+    pub fn disassemble_range_recovering(&self, address: u64, byte_length: u64) -> Result<DisassemblyReport> {
+        panic_guard(|| {
+            let translate = self.architecture.translator()?;
+            let mut current = self.code_address(address)?;
+            let mut remaining = byte_length;
+            let mut instructions = Vec::new();
+            let mut gaps = Vec::new();
+            let mut gap_start = None;
+            let mut gap_length = 0u64;
+            let mut decoded_bytes = 0u64;
+            let alignment = if self.language_id().to_ascii_lowercase().contains("aarch64") {
+                4u64
+            } else {
+                1u64
+            };
+
+            while remaining > 0 {
+                let mut text = InstructionText {
+                    mnemonic: String::new(),
+                    operands: String::new(),
+                };
+                let decoded = translate.print_assembly(&mut text, &current);
+                let length = decoded.ok().filter(|length| *length > 0).map(|length| length as u64)
+                    .filter(|length| *length <= remaining);
+
+                if let Some(length) = length {
+                    if let Some(start) = gap_start.take() {
+                        gaps.push(DisassemblyGap { address: start, length: gap_length });
+                        gap_length = 0;
+                    }
+                    let mut bytes = vec![0u8; length as usize];
+                    if let Some(loader) = &self.architecture.loader {
+                        loader.load_fill(&mut bytes, &current)?;
+                    }
+                    instructions.push(Instruction {
+                        address: current.get_offset(),
+                        length: length as usize,
+                        bytes,
+                        mnemonic: text.mnemonic,
+                        operands: text.operands,
+                    });
+                    decoded_bytes += length;
+                    current = current.add(length as i64);
+                    remaining -= length;
+                } else {
+                    gap_start.get_or_insert(current.get_offset());
+                    let step = alignment.min(remaining);
+                    gap_length += step;
+                    current = current.add(step as i64);
+                    remaining -= step;
+                }
+            }
+            if let Some(start) = gap_start {
+                gaps.push(DisassemblyGap { address: start, length: gap_length });
+            }
+
+            Ok(DisassemblyReport {
+                instructions,
+                gaps,
+                requested_bytes: byte_length,
+                decoded_bytes,
+            })
+        })
     }
 
     pub fn function_size(&mut self, address: u64) -> Result<u64> {
