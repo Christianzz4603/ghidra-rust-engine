@@ -530,12 +530,11 @@ impl Program {
                 for (index, byte) in chunk.into_iter().enumerate() {
                     let address = offset + index as u64;
                     if byte == 0 {
-                        if pending.len() >= MIN_STRING_LENGTH {
-                            if let Ok(value) = std::str::from_utf8(&pending) {
-                                if value.chars().all(|character| !character.is_control() || matches!(character, '\t' | '\n' | '\r')) {
-                                    result.push(StringEntry { address: pending_address, value: value.to_string() });
-                                }
-                            }
+                        if pending.len() >= MIN_STRING_LENGTH
+                            && let Ok(value) = std::str::from_utf8(&pending)
+                            && value.chars().all(|character| !character.is_control() || matches!(character, '\t' | '\n' | '\r'))
+                        {
+                            result.push(StringEntry { address: pending_address, value: value.to_string() });
                         }
                         pending.clear();
                         pending_address = address + 1;
