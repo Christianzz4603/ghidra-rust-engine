@@ -50,14 +50,14 @@ fn table(b: &[u8], count_off: usize, data_off: usize, width: usize) -> Result<Ve
 }
 fn uleb(b:&[u8], p:&mut usize)->Result<u32>{ let mut out=0u32; for shift in (0..35).step_by(7){ let x=*b.get(*p).ok_or_else(||fail("truncated ULEB128"))?; *p+=1; out|=((x&0x7f) as u32).checked_shl(shift).ok_or_else(||fail("ULEB128 overflow"))?; if x&0x80==0{return Ok(out)} } Err(fail("invalid ULEB128")) }
 fn access(flags:u32)->String { let mut v=Vec::new(); for (bit,name) in [(1,"public"),(2,"private"),(4,"protected"),(8,"static"),(16,"final"),(32,"synchronized"),(64,"bridge"),(128,"varargs"),(256,"native"),(512,"interface"),(1024,"abstract"),(2048,"strictfp"),(4096,"synthetic"),(8192,"annotation"),(16384,"enum"),(65536,"constructor"),(131072,"declared-synchronized")] {if flags&bit!=0{v.push(name)}} v.join(" ") }
-fn smali_type(d:&str)->String { let mut dims=0; for c in d.chars(){if c=='['{dims+=1}else{break}} let core=&d[dims..]; let name=match core {"V"=>"void".into(),"Z"=>"boolean".into(),"B"=>"byte".into(),"S"=>"short".into(),"C"=>"char".into(),"I"=>"int".into(),"J"=>"long".into(),"F"=>"float".into(),"D"=>"double".into(),_=>core.strip_prefix('L').and_then(|x|x.strip_suffix(';')).unwrap_or(core).replace('/','.')}; format!("{}{}",name,"[]".repeat(dims)) }
+fn smali_type(d:&str)->String { let mut dims=0; for c in d.chars(){if c=='['{dims+=1}else{break}} let core=&d[dims..]; let name=match core {"V"=>"void".into(),"Z"=>"boolean".into(),"B"=>"byte".into(),"S"=>"short".into(),"C"=>"char".into(),"I"=>"int".into(),"J"=>"long".into(),"F"=>"float".into(),"D"=>"double".into(),_=>core.strip_prefix('L').and_then(|x|x.strip_suffix(';')).unwrap_or(core).replace('/', ".")}; format!("{}{}",name,"[]".repeat(dims)) }
 impl DexFile {
     pub fn open(path: impl AsRef<Path>) -> Result<Self> { let bytes=std::fs::read(path.as_ref()).map_err(|e|fail(format!("cannot read {}: {e}",path.as_ref().display())))?; Self::parse(bytes) }
     pub fn parse(bytes: Vec<u8>) -> Result<Self> {
         if bytes.len()<112 || !bytes.starts_with(b"dex\n") || bytes.get(7)!=Some(&0) {return Err(fail("invalid DEX magic or truncated header"));}
         let version=String::from_utf8_lossy(&bytes[4..7]).to_string();
         let declared=u32_at(&bytes,32)? as usize; if declared>bytes.len() || declared<112{return Err(fail("invalid declared file size"));}
-        let string_ids=table(&bytes,56,60,4)?; let type_ids=table(&bytes,64,68,4)?; let proto_ids=table(&bytes,72,76,12)?; let field_ids=table(&bytes,80,84,8)?; let method_ids=table(&bytes,88,92,8)?; let class_defs=table(&bytes,96,100,32)?;
+        let string_ids=table(&bytes,56,60,4)?; let type_ids=table(&bytes,64,68,4)?; let proto_ids=table(&bytes,72,76,12)?; let method_ids=table(&bytes,88,92,8)?; let class_defs=table(&bytes,96,100,32)?;
         let mut strings=Vec::with_capacity(string_ids.len());
         for off in string_ids { let mut p=u32_at(&bytes,off)? as usize; let _utf16=uleb(&bytes,&mut p)?; let tail=bytes.get(p..).ok_or_else(||fail("bad string offset"))?; let n=tail.iter().position(|x|*x==0).ok_or_else(||fail("unterminated string"))?; strings.push(String::from_utf8_lossy(&tail[..n]).into_owned()); }
         let mut types=Vec::with_capacity(type_ids.len()); for off in type_ids {let i=u32_at(&bytes,off)? as usize; types.push(strings.get(i).ok_or_else(||fail("type string index out of range"))?.clone());}

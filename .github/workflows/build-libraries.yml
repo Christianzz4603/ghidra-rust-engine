@@ -60,6 +60,8 @@ jobs:
           distribution: temurin
           java-version: "17"
       - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
       - name: Install Android NDK
         run: sdkmanager "ndk;27.2.12479018"
       - uses: dtolnay/rust-toolchain@1.88.0
@@ -124,6 +126,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.88.0
         with:
           targets: ${{ matrix.target }}
+      - name: Install macOS Rust target
+        run: rustup target add ${{ matrix.target }}
       - name: Build macOS library
         run: cargo build --release --lib --target ${{ matrix.target }} --no-default-features --features all-processors
       - name: Package macOS library
