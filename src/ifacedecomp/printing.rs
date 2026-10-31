@@ -650,6 +650,7 @@ pub fn ifc_analyze_all(args: &mut IStream, status: &mut IfaceStatus) -> IfaceRes
     let c_path = directory.join(format!("{binary_name}.c"));
     let asm_path = directory.join(format!("{binary_name}.asm"));
     let csv_path = directory.join(format!("{binary_name}.csv"));
+    let report_path = directory.join(format!("{binary_name}.report.txt"));
     let mut c_file = std::fs::File::create(&c_path)
         .map_err(|err| IfaceError::Execution(format!("Cannot create {}: {err}", c_path.display())))?;
     let mut asm_file = std::fs::File::create(&asm_path)
@@ -745,6 +746,12 @@ pub fn ifc_analyze_all(args: &mut IStream, status: &mut IfaceStatus) -> IfaceRes
     }
     let mut processed = 0usize;
     let mut skipped = 0usize;
+    let mut assembly_ok = 0usize;
+    let mut decompile_ok = 0usize;
+    let mut size_failures = 0usize;
+    let mut assembly_failures = 0usize;
+    let mut decompile_failures = 0usize;
+    let mut diagnostics = Vec::new();
     let total = functions.len();
     out_write(&optr, &format!("Analyzing {total} discovered function(s)...\n"));
     for function in functions {
@@ -754,18 +761,31 @@ pub fn ifc_analyze_all(args: &mut IStream, status: &mut IfaceStatus) -> IfaceRes
             Ok(size) if size > 0 => size,
             Ok(_) => {
                 skipped += 1;
+                size_failures += 1;
+                diagnostics.push(format!("{name} @ {address:#x}: function size is zero"));
+                writeln!(csv_file, "analysis_status,{},{:#x},,size=unknown", csv(&name), address)
+                    .map_err(|err| IfaceError::Execution(err.to_string()))?;
                 continue;
             }
             Err(err) => {
                 skipped += 1;
-                out_write(&optr, &format!("Skipping {name}: {}\n", err.explain()));
+                size_failures += 1;
+                let message = err.explain();
+                diagnostics.push(format!("{name} @ {address:#x}: size lookup failed: {message}"));
+                writeln!(csv_file, "analysis_status,{},{:#x},,size_error={}", csv(&name), address, csv(&message))
+                    .map_err(|err| IfaceError::Execution(err.to_string()))?;
+                out_write(&optr, &format!("Skipping {name}: {message}\n"));
                 continue;
             }
         };
+        let mut function_assembly_ok = false;
+        let mut function_decompile_ok = false;
         match program.disassemble_range(address, size) {
             Ok(instructions) => {
                 writeln!(asm_file, "\n; {name} @ {address:#x}")
                     .map_err(|err| IfaceError::Execution(err.to_string()))?;
+                assembly_ok += 1;
+                function_assembly_ok = true;
                 for instruction in instructions {
                     let bytes = instruction
                         .bytes
@@ -783,7 +803,10 @@ pub fn ifc_analyze_all(args: &mut IStream, status: &mut IfaceStatus) -> IfaceRes
             }
             Err(err) => {
                 skipped += 1;
-                out_write(&optr, &format!("Assembly skipped for {name}: {}\n", err.explain()));
+                assembly_failures += 1;
+                let message = err.explain();
+                diagnostics.push(format!("{name} @ {address:#x}: disassembly failed: {message}"));
+                out_write(&optr, &format!("Assembly skipped for {name}: {message}\n"));
             }
         }
         match program.decompile(address) {
@@ -792,12 +815,24 @@ pub fn ifc_analyze_all(args: &mut IStream, status: &mut IfaceStatus) -> IfaceRes
                     .and_then(|_| c_file.write_all(text.as_bytes()))
                     .map_err(|err| IfaceError::Execution(err.to_string()))?;
                 processed += 1;
+                decompile_ok += 1;
+                function_decompile_ok = true;
             }
             Err(err) => {
                 skipped += 1;
-                out_write(&optr, &format!("Decompilation skipped for {name}: {}\n", err.explain()));
+                decompile_failures += 1;
+                let message = err.explain();
+                diagnostics.push(format!("{name} @ {address:#x}: decompilation failed: {message}"));
+                out_write(&optr, &format!("Decompilation skipped for {name}: {message}\n"));
             }
         }
+        writeln!(
+            csv_file,
+            "analysis_status,{},{:#x},{},assembly={};decompile={}",
+            csv(&name), address, size,
+            if function_assembly_ok { "ok" } else { "failed" },
+            if function_decompile_ok { "ok" } else { "failed" }
+        ).map_err(|err| IfaceError::Execution(err.to_string()))?;
         if processed.is_multiple_of(25) && processed > 0 {
             out_write(&optr, &format!("Progress: {processed}/{total} functions processed\n"));
         }
@@ -805,14 +840,18 @@ pub fn ifc_analyze_all(args: &mut IStream, status: &mut IfaceStatus) -> IfaceRes
     c_file.flush().map_err(|err| IfaceError::Execution(err.to_string()))?;
     asm_file.flush().map_err(|err| IfaceError::Execution(err.to_string()))?;
     csv_file.flush().map_err(|err| IfaceError::Execution(err.to_string()))?;
+    let report = format!(
+        "GHIDRA-RUST-ENGINE ANALYSIS REPORT\n===============================\nInput file: {filename}\nDiscovered functions: {total}\nSuccessfully decompiled: {processed}\nFunctions with assembly exported: {assembly_ok}\nSize lookup failures: {size_failures}\nDisassembly failures: {assembly_failures}\nDecompilation failures: {decompile_failures}\nData symbols: {}\nStrings: {}\nCall edges: {}\n\nLIMITATIONS\n-----------\nFunction discovery is heuristic and may miss functions or include false positives. Assembly covers recovered function ranges only, not every executable byte. Decompiled C is inferred pseudocode, not original source or a guarantee of semantic equivalence. Xrefs, data references, function boundaries, names, and types may be incomplete. This engine does not claim IDA-equivalent completeness.\n\nDIAGNOSTICS\n-----------\n{}",
+        data.len(), strings.len(), calls.len(),
+        if diagnostics.is_empty() { "No per-function failures reported.".to_string() } else { diagnostics.join("\n") }
+    );
+    std::fs::write(&report_path, report)
+        .map_err(|err| IfaceError::Execution(format!("Cannot write {}: {err}", report_path.display())))?;
     out_write(
         &optr,
         &format!(
-            "\nAnalysis finished: {processed}/{total} functions decompiled; {skipped} operation(s) skipped.\nData symbols: {} | Strings: {} | Call edges: {}\nOutput folder: {}\nFiles: {binary_name}.c, {binary_name}.asm, {binary_name}.csv\n",
-            data.len(),
-            strings.len(),
-            calls.len(),
-            directory.display()
+            "\nAnalysis finished: {processed}/{total} functions decompiled; {skipped} operation(s) skipped.\nAssembly exported: {assembly_ok}/{total}. Failures: size={size_failures}, disassembly={assembly_failures}, decompilation={decompile_failures}.\nData symbols: {} | Strings: {} | Call edges: {}\nOutput folder: {}\nFiles: {binary_name}.c, {binary_name}.asm, {binary_name}.csv, {binary_name}.report.txt\n",
+            data.len(), strings.len(), calls.len(), directory.display()
         ),
     );
     Ok(())
