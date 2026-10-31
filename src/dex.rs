@@ -342,6 +342,27 @@ impl DexFile {
         Ok(out)
     }
 }
+impl DexMethod {
+    /// Java-style signature, for example `java.lang.String com.example.Foo.bar(int, byte[])`.
+    ///
+    /// The raw DEX descriptors stay available in `return_type`, `parameters` and
+    /// `class_descriptor`; this only renders them in a readable form.
+    pub fn java_signature(&self) -> String {
+        let parameters: Vec<String> = self
+            .parameters
+            .iter()
+            .map(|parameter| smali_type(parameter.as_str()))
+            .collect();
+        format!(
+            "{} {}.{}({})",
+            smali_type(&self.return_type),
+            smali_type(&self.class_descriptor),
+            self.name,
+            parameters.join(", ")
+        )
+    }
+}
+
 fn smali_type(descriptor: &str) -> String {
     let dimensions = descriptor.bytes().take_while(|byte| *byte == b'[').count();
     let base = &descriptor[dimensions..];
@@ -460,6 +481,20 @@ mod tests {
         assert_eq!(smali_type("Ljava/lang/String;"), "java.lang.String");
         assert_eq!(smali_type("[[I"), "int[][]");
         assert_eq!(smali_type("V"), "void");
+    }
+
+    #[test]
+    fn java_signature_renders_readable_types() {
+        let method = DexMethod {
+            index: 0,
+            name: "bar".to_string(),
+            class_descriptor: "Lcom/example/Foo;".to_string(),
+            return_type: "Ljava/lang/String;".to_string(),
+            parameters: vec!["I".to_string(), "[B".to_string()],
+            access_flags: 0,
+            code_offset: 0,
+        };
+        assert_eq!(method.java_signature(), "java.lang.String com.example.Foo.bar(int, byte[])");
     }
     #[test]
     fn rejects_short_dex() {

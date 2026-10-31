@@ -991,7 +991,7 @@ pub fn ifc_analyze_all(args: &mut IStream, status: &mut IfaceStatus) -> IfaceRes
                     "analysis_status,{},{:#x},,size_error={}",
                     csv(&name),
                     address,
-                    csv(&message)
+                    csv(message)
                 )
                 .map_err(|err| IfaceError::Execution(err.to_string()))?;
                 out_write(&optr, &format!("Skipping {name}: {message}\n"));
