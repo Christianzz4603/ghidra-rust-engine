@@ -519,8 +519,16 @@ mod tests {
                 opcode: OpCode::Copy,
                 output: None,
                 inputs: vec![
-                    PcodeVarnode { space: "const".into(), offset: 9, size: 8 },
-                    PcodeVarnode { space: "const".into(), offset: 2, size: 8 },
+                    PcodeVarnode {
+                        space: "const".into(),
+                        offset: 9,
+                        size: 8,
+                    },
+                    PcodeVarnode {
+                        space: "const".into(),
+                        offset: 2,
+                        size: 8,
+                    },
                 ],
                 space: None,
             }],
