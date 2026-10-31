@@ -11,7 +11,7 @@ use crate::funcdata::Funcdata;
 use crate::graph::{dump_controlflow_graph, dump_dataflow_graph, dump_dom_graph};
 use crate::interface::{IStream, IfaceError, IfaceResult, IfaceStatus, OutStream, out_write};
 use crate::paramid::ParamIdAnalysis;
-use crate::intelligence::{BinaryIntelligence, Confidence, FlowKind};
+use crate::intelligence::BinaryIntelligence;
 use crate::program::Program;
 use crate::space::SpaceType;
 use crate::types::print_data;
@@ -681,6 +681,7 @@ pub fn ifc_analyze_all(args: &mut IStream, status: &mut IfaceStatus) -> IfaceRes
     let calls = program
         .call_graph()
         .map_err(|err| IfaceError::Execution(format!("Cannot build call graph: {}", err.explain())))?;
+    let csv = |value: &str| format!("\"{}\"", value.replace('\"', "\"\""));
     let intelligence = BinaryIntelligence::new(&mut program)
         .analyze_all()
         .map_err(|err| IfaceError::Execution(format!("Intelligence analysis failed: {}", err.explain())))?;
@@ -754,7 +755,6 @@ pub fn ifc_analyze_all(args: &mut IStream, status: &mut IfaceStatus) -> IfaceRes
             .map_err(|err| IfaceError::Execution(err.to_string()))?;
     }
 
-    let csv = |value: &str| format!("\"{}\"", value.replace('\"', "\"\""));
     use std::io::Write as _;
     csv_file
         .write_all(b"type,name,address,size,details\n")
