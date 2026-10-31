@@ -151,10 +151,16 @@ impl KotlinBuiltins {
             return Err(fail("missing package fragment protobuf"));
         }
         let fragment = fields(&raw_proto)?;
-        let string_table = bytes_field(&fragment, 1).into_iter()
+        let string_table_proto = bytes_field(&fragment, 1).into_iter().next()
+            .ok_or_else(|| fail("package fragment has no string table"))?;
+        let string_table_fields = fields(string_table_proto)?;
+        let string_table = bytes_field(&string_table_fields, 1).into_iter()
             .map(|value| String::from_utf8_lossy(value).into_owned())
             .collect::<Vec<_>>();
-        let qualified_table = bytes_field(&fragment, 2).into_iter()
+        let qualified_table_proto = bytes_field(&fragment, 2).into_iter().next()
+            .ok_or_else(|| fail("package fragment has no qualified-name table"))?;
+        let qualified_table_fields = fields(qualified_table_proto)?;
+        let qualified_table = bytes_field(&qualified_table_fields, 1).into_iter()
             .map(fields)
             .collect::<Result<Vec<_>>>()?;
 
