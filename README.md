@@ -122,6 +122,19 @@ cargo build --profile release-small --no-default-features --features mobile --ex
 
 Use the ordinary `--release` profile when maximum decompilation speed is the priority. Desktop users can keep the default `--release` build; no processor support is removed from the desktop defaults.
 
+
+## Local browser interface (Termux / Android)
+
+A lightweight, dependency-free local web interface is available as an example. It runs directly beside the Rust engine and does not require XFCE, X11, Node.js, or a separate web server:
+
+```sh
+cargo run --release --no-default-features --features mobile --example webui
+```
+
+Then open `http://127.0.0.1:8080` in the Android browser. To choose another port, pass `--port=9090`. Enter an absolute binary path such as `/sdcard/home/libminecraftpe.so`, open it, and select a discovered function to view pseudocode, assembly, or a small hex window. The server binds only to `127.0.0.1`; it is not exposed to your Wi-Fi network or Cloudflare Tunnel by default.
+
+The first version intentionally keeps analysis local and single-binary-at-a-time. It provides a foundation for the larger interactive workspace; graph navigation, persistent sessions, editable names/comments, and background/cancellable analysis are not implemented yet.
+
 ## Native library builds and signing
 
 The GitHub Actions native-library workflow builds platform-specific library artifacts, including Windows `.dll`, macOS `.dylib`, Linux/Android `.so`, and Rust `.rlib` outputs where supported by the target. Build artifacts are published to GitHub Actions, and release builds can be attached to a GitHub Release.
