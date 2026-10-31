@@ -96,6 +96,8 @@ Use the ordinary `--release` profile when maximum decompilation speed is the pri
 
 The GitHub Actions native-library workflow builds platform-specific library artifacts, including Windows `.dll`, macOS `.dylib`, Linux/Android `.so`, and Rust `.rlib` outputs where supported by the target. Build artifacts are published to GitHub Actions, and release builds can be attached to a GitHub Release.
 
+Android builds target all four standard Android ABIs: `armeabi-v7a` (32-bit ARM), `arm64-v8a` (64-bit ARM), `x86` (32-bit Intel/AMD), and `x86_64` (64-bit Intel/AMD). The Android native libraries are built with Android NDK 27.2 and a minimum API level of 24.
+
 **The project does not sign the published native libraries.** Developers who download, integrate, or redistribute these artifacts are responsible for signing the binaries themselves when their platform, distribution channel, or deployment requirements call for it. Use the signing process appropriate to the target platform, such as Authenticode for Windows or Apple code signing for macOS. Linux and Android distribution requirements vary; do not treat a checksum as an operating-system code signature.
 
 ## Library usage
