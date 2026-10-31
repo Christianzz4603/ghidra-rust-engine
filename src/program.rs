@@ -1074,7 +1074,10 @@ impl Program {
             let translate = self.architecture.translator()?;
             let mut current = self.code_address(address)?;
             let mut remaining = byte_length;
-            let mut instructions = Vec::new();
+            // Most supported targets use instructions of at least four bytes.
+            // Cap the estimate to avoid huge speculative allocations on malformed inputs.
+            let estimated = usize::try_from((byte_length / 4).min(1_000_000)).unwrap_or(0);
+            let mut instructions = Vec::with_capacity(estimated);
             while remaining > 0 {
                 let mut text = InstructionText {
                     mnemonic: String::new(),
@@ -1114,7 +1117,8 @@ impl Program {
             let translate = self.architecture.translator()?;
             let mut current = self.code_address(address)?;
             let mut remaining = byte_length;
-            let mut instructions = Vec::new();
+            let estimated = usize::try_from((byte_length / 4).min(1_000_000)).unwrap_or(0);
+            let mut instructions = Vec::with_capacity(estimated);
             while remaining > 0 {
                 let mut collector = OperationCollector {
                     manager: &self.architecture.manager,

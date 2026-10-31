@@ -760,8 +760,12 @@ pub fn ifc_analyze_all(args: &mut IStream, status: &mut IfaceStatus) -> IfaceRes
     )
     .map_err(|err| IfaceError::Execution(err.to_string()))?;
     for graph in &intelligence.control_flow_graphs {
+        let mut edges_by_block: std::collections::HashMap<u64, Vec<&crate::intelligence::FlowEdge>> = std::collections::HashMap::new();
+        for edge in &graph.edges {
+            edges_by_block.entry(edge.from).or_default().push(edge);
+        }
         for block in &graph.blocks {
-            let edges: Vec<_> = graph.edges.iter().filter(|edge| edge.from == block.start).collect();
+            let edges = edges_by_block.get(&block.start).map(Vec::as_slice).unwrap_or(&[]);
             if edges.is_empty() {
                 writeln!(
                     cfg_file,

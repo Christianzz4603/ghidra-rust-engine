@@ -341,3 +341,8 @@ Commands:
 - Starting the interactive console checks for a newer release and prints an update notice when one is available. Checks are cached for six hours and require `curl`; lack of network access does not prevent the CLI from starting.
 
 The update notice is informational. It never replaces the running executable automatically; download the archive matching your operating system and CPU architecture from the release page.
+
+
+### Release performance
+
+Release builds use `opt-level=3`, fat LTO, and one codegen unit for cross-crate optimization. This increases build time and avoids `target-cpu=native` so distributed binaries remain portable. Analysis hot paths use allocation-free assembly sinks during code coverage sweeps, pre-index call edges, hash-based internal aggregation with sorted output, and pre-sized instruction buffers.

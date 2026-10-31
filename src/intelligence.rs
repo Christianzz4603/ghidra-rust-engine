@@ -123,9 +123,9 @@ impl<'a> BinaryIntelligence<'a> {
         let fs = self.program.functions()?;
         let calls = self.program.call_graph()?;
         // Index edges once instead of rescanning the complete graph per function.
-        let mut calls_by_function: HashMap<u64, Vec<CallEdge>> = HashMap::new();
+        let mut calls_by_function: HashMap<u64, Vec<&CallEdge>> = HashMap::new();
         for edge in &calls {
-            calls_by_function.entry(edge.caller).or_default().push(edge.clone());
+            calls_by_function.entry(edge.caller).or_default().push(edge);
         }
         let mut r = IntelligenceReport {
             call_edges: calls,
@@ -149,7 +149,7 @@ impl<'a> BinaryIntelligence<'a> {
     pub fn analyze_one(&mut self, a: u64) -> Result<IntelligenceReport> {
         let f = self.program.ensure_function_at(a, None)?;
         let c = self.program.call_graph()?;
-        let function_calls: Vec<_> = c.iter().filter(|edge| edge.caller == f.address).cloned().collect();
+        let function_calls: Vec<_> = c.iter().filter(|edge| edge.caller == f.address).collect();
         let mut r = IntelligenceReport {
             call_edges: c,
             ..Default::default()
@@ -195,7 +195,7 @@ impl<'a> BinaryIntelligence<'a> {
         v.truncate(n);
         Ok(v)
     }
-    fn one(&mut self, f: &FunctionEntry, c: &[CallEdge], r: &mut IntelligenceReport) -> Result<()> {
+    fn one(&mut self, f: &FunctionEntry, c: &[&CallEdge], r: &mut IntelligenceReport) -> Result<()> {
         let n = self.program.function_size(f.address)?;
         if n == 0 {
             return Ok(());
