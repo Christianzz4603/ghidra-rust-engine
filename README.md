@@ -6,6 +6,26 @@ A pure Rust port of the Ghidra decompiler (Ghidra 12.2, `Ghidra/Features/Decompi
 It has no C, C++ or Java dependencies. The output is textually identical to the C++ decompiler on the
 test corpora in `tests/data`.
 
+## Full-library decompilation
+
+After loading a binary in the interactive console, run:
+
+```text
+open /path/to/library.so
+decompile all /path/to/output
+```
+
+This runs whole-image analysis rather than requiring a function name. It discovers functions from the entry point, symbols, and reachable code, then attempts to export C pseudocode and assembly for every recovered function. It also exports data symbols, strings, and call edges.
+
+The output directory contains:
+- `<library>.c`: combined C-like pseudocode for successfully decompiled functions.
+- `<library>.asm`: disassembly for recovered function ranges.
+- `<library>.csv`: discovered functions, data symbols, strings, and call edges.
+
+The output directory argument is optional. Without it, output is written to `/sdcard/home/analysis` on Termux. This is best-effort binary analysis, not recovery of the original source: stripped binaries, embedded data, jump tables, and code that cannot be reached from known seeds may require additional analysis.
+
+The existing `analyze [output-directory]` command remains an alias for the same whole-library pipeline.
+
 ## Beginner-friendly console workflow
 
 The interactive console supports short commands for the most common tasks:
