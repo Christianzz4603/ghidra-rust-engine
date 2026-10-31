@@ -71,9 +71,9 @@ jobs:
           cp target/${{ matrix.target }}/release/libghidra_decompiler.so dist/ghidra-rust-engine-${{ matrix.name }}.so
           cp target/${{ matrix.target }}/release/libghidra_decompiler.a dist/ghidra-rust-engine-${{ matrix.name }}.a
           cp target/${{ matrix.target }}/release/libghidra_decompiler.rlib dist/ghidra-rust-engine-${{ matrix.name }}.rlib
-          cp target/${{ matrix.target }}/release/examples/decomp package/ghidra-engine
-          chmod +x package/ghidra-engine
-          tar -czf dist/ghidra-engine-v${{ needs.prepare.outputs.version }}-${{ matrix.name }}.tar.gz -C package ghidra-engine
+          cp target/${{ matrix.target }}/release/examples/decomp package/ghidra-rust_cli
+          chmod +x package/ghidra-rust_cli
+          tar -czf dist/ghidra-rust_cli-v${{ needs.prepare.outputs.version }}-${{ matrix.name }}.tar.gz -C package ghidra-rust_cli
       - uses: actions/upload-artifact@v4
         with:
           name: release-${{ matrix.name }}
@@ -135,11 +135,11 @@ jobs:
           cp target/${{ matrix.target }}/release/libghidra_decompiler.so dist/libghidra-rust-engine-Android-${{ matrix.abi }}.so
           cp target/${{ matrix.target }}/release/libghidra_decompiler.a dist/libghidra-rust-engine-Android-${{ matrix.abi }}.a
           cp target/${{ matrix.target }}/release/libghidra_decompiler.rlib dist/libghidra-rust-engine-Android-${{ matrix.abi }}.rlib
-          cp target/${{ matrix.target }}/release/examples/decomp package/ghidra-engine
+          cp target/${{ matrix.target }}/release/examples/decomp package/ghidra-rust_cli
           cp scripts/install-termux.sh package/install-termux.sh
           cp scripts/termux-open package/termux-open
-          chmod +x package/ghidra-engine package/install-termux.sh package/termux-open
-          tar -czf dist/ghidra-engine-v${{ needs.prepare.outputs.version }}-Android-${{ matrix.abi }}.tar.gz -C package ghidra-engine install-termux.sh termux-open
+          chmod +x package/ghidra-rust_cli package/install-termux.sh package/termux-open
+          tar -czf dist/ghidra-rust_cli-v${{ needs.prepare.outputs.version }}-Android-${{ matrix.abi }}.tar.gz -C package ghidra-rust_cli install-termux.sh termux-open
       - uses: actions/upload-artifact@v4
         with:
           name: release-Android-${{ matrix.abi }}
@@ -168,8 +168,8 @@ jobs:
           New-Item -ItemType Directory -Force dist, package | Out-Null
           Copy-Item target/x86_64-pc-windows-msvc/release/ghidra_decompiler.dll dist/ghidra-rust-engine-Windows-x64.dll
           Copy-Item target/x86_64-pc-windows-msvc/release/ghidra_decompiler.lib dist/ghidra-rust-engine-Windows-x64.lib
-          Copy-Item target/x86_64-pc-windows-msvc/release/examples/decomp.exe package/ghidra-engine.exe
-          Compress-Archive -Path package/ghidra-engine.exe -DestinationPath dist/ghidra-engine-v${{ needs.prepare.outputs.version }}-Windows-x64.zip
+          Copy-Item target/x86_64-pc-windows-msvc/release/examples/decomp.exe package/ghidra-rust_cli.exe
+          Compress-Archive -Path package/ghidra-rust_cli.exe -DestinationPath dist/ghidra-rust_cli-v${{ needs.prepare.outputs.version }}-Windows-x64.zip
       - uses: actions/upload-artifact@v4
         with:
           name: release-Windows-x64
@@ -208,9 +208,9 @@ jobs:
           cp target/${{ matrix.target }}/release/libghidra_decompiler.dylib dist/libghidra-rust-engine-${{ matrix.name }}.dylib
           cp target/${{ matrix.target }}/release/libghidra_decompiler.a dist/libghidra-rust-engine-${{ matrix.name }}.a
           cp target/${{ matrix.target }}/release/libghidra_decompiler.rlib dist/libghidra-rust-engine-${{ matrix.name }}.rlib
-          cp target/${{ matrix.target }}/release/examples/decomp package/ghidra-engine
-          chmod +x package/ghidra-engine
-          tar -czf dist/ghidra-engine-v${{ needs.prepare.outputs.version }}-${{ matrix.name }}.tar.gz -C package ghidra-engine
+          cp target/${{ matrix.target }}/release/examples/decomp package/ghidra-rust_cli
+          chmod +x package/ghidra-rust_cli
+          tar -czf dist/ghidra-rust_cli-v${{ needs.prepare.outputs.version }}-${{ matrix.name }}.tar.gz -C package ghidra-rust_cli
       - uses: actions/upload-artifact@v4
         with:
           name: release-${{ matrix.name }}

@@ -1,38 +1,24 @@
 #!/system/bin/sh
 set -eu
-
 PREFIX="${PREFIX:-/data/data/com.termux/files/usr}"
-DECOMPILER="$PREFIX/bin/ghidra-engine"
-
-if [ ! -x "$DECOMPILER" ]; then
-    DECOMPILER="$PREFIX/bin/ghidra-decompiler"
-fi
-
+CLI="$PREFIX/bin/ghidra-rust_cli"
 if [ "$#" -ne 1 ]; then
     printf 'Usage: open <file>\n' >&2
     exit 2
 fi
-
-if [ ! -x "$DECOMPILER" ]; then
-    printf 'ghidra-engine is not installed. Extract the Android release archive and run install-termux.sh.\n' >&2
+if [ ! -x "$CLI" ]; then
+    printf 'ghidra-rust_cli is not installed. Run install-termux.sh first.\n' >&2
     exit 127
 fi
-
 FILE=$1
-case "$FILE" in
-    /*) ;;
-    *) FILE="$PWD/$FILE" ;;
-esac
-
+case "$FILE" in /*) ;; *) FILE="$PWD/$FILE" ;; esac
 if [ ! -f "$FILE" ]; then
     printf 'File not found: %s\n' "$FILE" >&2
     exit 1
 fi
-
 TMP_DIR="${TMPDIR:-$PREFIX/tmp}"
 mkdir -p "$TMP_DIR"
 INIT_SCRIPT=$(mktemp "$TMP_DIR/ghidra-open.XXXXXX")
 trap 'rm -f "$INIT_SCRIPT"' EXIT HUP INT TERM
-
 printf 'load file %s\n' "$FILE" > "$INIT_SCRIPT"
-"$DECOMPILER" -i "$INIT_SCRIPT"
+"$CLI" -i "$INIT_SCRIPT"
