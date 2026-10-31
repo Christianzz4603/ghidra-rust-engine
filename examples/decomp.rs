@@ -7,7 +7,6 @@ use ghidra_decompiler::ifacedecomp::{mainloop, register_all_commands, register_c
 use ghidra_decompiler::interface::{IfaceError, IfaceStatus, new_out_stream, out_write};
 use ghidra_decompiler::sleigh_arch::{add_global_language_directory, scan_global_sleigh_directories};
 
-const REPOSITORY: &str = "Christianzz4603/ghidra-rust-engine";
 const RELEASES_URL: &str = "https://github.com/Christianzz4603/ghidra-rust-engine/releases/latest";
 const API_URL: &str = "https://api.github.com/repos/Christianzz4603/ghidra-rust-engine/releases/latest";
 

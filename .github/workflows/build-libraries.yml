@@ -9,7 +9,33 @@ permissions:
   contents: write
 
 jobs:
+  prepare:
+    name: Calculate next release version
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Increment the latest semantic version
+        id: version
+        shell: bash
+        run: |
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import re, subprocess
+          tags = subprocess.check_output(["git", "tag", "--list"], text=True).splitlines()
+          versions = []
+          for tag in tags:
+              match = re.fullmatch(r"v?(\d+)\.(\d+)\.(\d+)", tag.strip())
+              if match:
+                  versions.append(tuple(map(int, match.groups())))
+          major, minor, patch = max(versions, default=(0, 0, 0))
+          print(f"version={major}.{minor}.{patch + 1}")
+          PY
+
   linux:
+    needs: prepare
     name: Linux ${{ matrix.name }}
     runs-on: ubuntu-24.04
     strategy:
@@ -32,7 +58,7 @@ jobs:
         run: cross build --release --lib --target ${{ matrix.target }} --no-default-features --features all-processors
       - name: Build CLI
         env:
-          GHIDRA_ENGINE_VERSION: v0.0.${{ github.run_number }}
+          GHIDRA_ENGINE_VERSION: v${{ needs.prepare.outputs.version }}
         run: cross build --release --example decomp --target ${{ matrix.target }} --no-default-features --features all-processors
       - name: Package release files
         shell: bash
@@ -43,7 +69,7 @@ jobs:
           cp target/${{ matrix.target }}/release/libghidra_decompiler.rlib dist/ghidra-rust-engine-${{ matrix.name }}.rlib
           cp target/${{ matrix.target }}/release/examples/decomp package/ghidra-engine
           chmod +x package/ghidra-engine
-          tar -czf dist/ghidra-engine-v0.0.${{ github.run_number }}-${{ matrix.name }}.tar.gz -C package ghidra-engine
+          tar -czf dist/ghidra-engine-v${{ needs.prepare.outputs.version }}-${{ matrix.name }}.tar.gz -C package ghidra-engine
       - uses: actions/upload-artifact@v4
         with:
           name: release-${{ matrix.name }}
@@ -52,6 +78,7 @@ jobs:
           retention-days: 30
 
   android:
+    needs: prepare
     name: Android ${{ matrix.abi }}
     runs-on: ubuntu-24.04
     strategy:
@@ -87,7 +114,7 @@ jobs:
       - name: Build native library and CLI
         shell: bash
         env:
-          GHIDRA_ENGINE_VERSION: v0.0.${{ github.run_number }}
+          GHIDRA_ENGINE_VERSION: v${{ needs.prepare.outputs.version }}
         run: |
           NDK="$ANDROID_HOME/ndk/27.2.12479018"
           TOOLCHAIN="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin"
@@ -101,7 +128,7 @@ jobs:
           cp target/${{ matrix.target }}/release/libghidra_decompiler.a dist/libghidra-rust-engine-Android-${{ matrix.abi }}.a
           cp target/${{ matrix.target }}/release/libghidra_decompiler.rlib dist/libghidra-rust-engine-Android-${{ matrix.abi }}.rlib
           cp target/${{ matrix.target }}/release/examples/decomp package/ghidra-engine
-          tar -czf dist/ghidra-engine-v0.0.${{ github.run_number }}-Android-${{ matrix.abi }}.tar.gz -C package ghidra-engine
+          tar -czf dist/ghidra-engine-v${{ needs.prepare.outputs.version }}-Android-${{ matrix.abi }}.tar.gz -C package ghidra-engine
       - uses: actions/upload-artifact@v4
         with:
           name: release-Android-${{ matrix.abi }}
@@ -110,6 +137,7 @@ jobs:
           retention-days: 30
 
   windows:
+    needs: prepare
     name: Windows x64
     runs-on: windows-2025
     steps:
@@ -121,7 +149,7 @@ jobs:
         run: cargo build --release --lib --target x86_64-pc-windows-msvc --no-default-features --features all-processors
       - name: Build CLI
         env:
-          GHIDRA_ENGINE_VERSION: v0.0.${{ github.run_number }}
+          GHIDRA_ENGINE_VERSION: v${{ needs.prepare.outputs.version }}
         run: cargo build --release --example decomp --target x86_64-pc-windows-msvc --no-default-features --features all-processors
       - name: Package Windows release files
         shell: pwsh
@@ -130,7 +158,7 @@ jobs:
           Copy-Item target/x86_64-pc-windows-msvc/release/ghidra_decompiler.dll dist/ghidra-rust-engine-Windows-x64.dll
           Copy-Item target/x86_64-pc-windows-msvc/release/ghidra_decompiler.lib dist/ghidra-rust-engine-Windows-x64.lib
           Copy-Item target/x86_64-pc-windows-msvc/release/examples/decomp.exe package/ghidra-engine.exe
-          Compress-Archive -Path package/ghidra-engine.exe -DestinationPath dist/ghidra-engine-v0.0.${{ github.run_number }}-Windows-x64.zip
+          Compress-Archive -Path package/ghidra-engine.exe -DestinationPath dist/ghidra-engine-v${{ needs.prepare.outputs.version }}-Windows-x64.zip
       - uses: actions/upload-artifact@v4
         with:
           name: release-Windows-x64
@@ -139,6 +167,7 @@ jobs:
           retention-days: 30
 
   macos:
+    needs: prepare
     name: macOS ${{ matrix.name }}
     runs-on: macos-14
     strategy:
@@ -160,7 +189,7 @@ jobs:
         run: cargo build --release --lib --target ${{ matrix.target }} --no-default-features --features all-processors
       - name: Build CLI
         env:
-          GHIDRA_ENGINE_VERSION: v0.0.${{ github.run_number }}
+          GHIDRA_ENGINE_VERSION: v${{ needs.prepare.outputs.version }}
         run: cargo build --release --example decomp --target ${{ matrix.target }} --no-default-features --features all-processors
       - name: Package macOS release files
         run: |
@@ -170,7 +199,7 @@ jobs:
           cp target/${{ matrix.target }}/release/libghidra_decompiler.rlib dist/libghidra-rust-engine-${{ matrix.name }}.rlib
           cp target/${{ matrix.target }}/release/examples/decomp package/ghidra-engine
           chmod +x package/ghidra-engine
-          tar -czf dist/ghidra-engine-v0.0.${{ github.run_number }}-${{ matrix.name }}.tar.gz -C package ghidra-engine
+          tar -czf dist/ghidra-engine-v${{ needs.prepare.outputs.version }}-${{ matrix.name }}.tar.gz -C package ghidra-engine
       - uses: actions/upload-artifact@v4
         with:
           name: release-${{ matrix.name }}
@@ -180,7 +209,7 @@ jobs:
 
   publish:
     name: Publish versioned GitHub Release
-    needs: [linux, android, windows, macos]
+    needs: [prepare, linux, android, windows, macos]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/download-artifact@v4
@@ -194,9 +223,9 @@ jobs:
       - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v0.0.${{ github.run_number }}
+          tag_name: v${{ needs.prepare.outputs.version }}
           target_commitish: ${{ github.sha }}
-          name: Ghidra Rust Engine v0.0.${{ github.run_number }}
+          name: Ghidra Rust Engine v${{ needs.prepare.outputs.version }}
           generate_release_notes: true
           draft: false
           prerelease: false

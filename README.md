@@ -300,7 +300,7 @@ The `intelligence` module adds first-pass cross-reference, CFG, data-flow, proto
 
 ## Standalone CLI releases and updates
 
-Every push to `master` triggers a cross-platform release build. The workflow publishes the CLI executable and native libraries together as a GitHub Release, using an automatically increasing patch version (`v0.0.<workflow-run-number>`). A failed platform build prevents publication, so a release is not marked complete with missing targets.
+Every push to `master` triggers a cross-platform release build. The workflow publishes the CLI executable and native libraries together as a GitHub Release, using the next patch version after the latest semantic Git tag (starting at `v0.0.1` when no version tags exist). A failed platform build prevents publication, so a release is not marked complete with missing targets.
 
 CLI archives are provided for Android `armeabi-v7a`, `arm64-v8a`, `x86`, and `x86_64`; Linux x86_64 and ARM64; Windows x64; and macOS Intel and Apple Silicon. Extract the archive and run `ghidra-engine` (or `ghidra-engine.exe` on Windows). On Android/Termux, mark the executable as runnable with `chmod +x ghidra-engine`.
 
