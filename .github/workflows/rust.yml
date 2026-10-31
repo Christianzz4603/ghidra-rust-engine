@@ -118,6 +118,14 @@ jobs:
       with:
         name: fuzz-artifacts-${{ matrix.target }}
         path: fuzz/artifacts
+  mobile-check:
+    runs-on: ubuntu-24.04
+    steps:
+    - uses: actions/checkout@v4
+    - name: Install toolchain
+      run: rustup toolchain install
+    - name: Check mobile feature set
+      run: cargo check --no-default-features --features mobile --all-targets
   required-checks:
     runs-on: ubuntu-latest
     if: always()
@@ -131,6 +139,7 @@ jobs:
       - doc
       - package
       - fuzz
+      - mobile-check
     steps:
     - name: Fail if any dependency failed or was cancelled
       if: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}

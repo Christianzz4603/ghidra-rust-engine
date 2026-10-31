@@ -115,6 +115,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.88.0
         with:
           targets: ${{ matrix.target }}
+      - name: Install Android Rust target
+        run: rustup target add --toolchain 1.98.1 ${{ matrix.target }}
       - name: Build native library and CLI
         shell: bash
         env:

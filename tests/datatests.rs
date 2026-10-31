@@ -93,8 +93,11 @@ fn run_file(path: &Path) -> FileOutcome {
         let mut collection = FunctionTestCollection::new();
         let mut failures = Vec::new();
         let counts = collection.run_test_file(&filename, &mut console, &mut failures);
-        if std::env::var_os("DATATESTS_CONSOLE").is_some() {
-            eprintln!("{}", output.lock().expect("poisoned output stream lock"));
+        if counts.is_none() || std::env::var_os("DATATESTS_CONSOLE").is_some() {
+            let diagnostic = output.lock().expect("poisoned output stream lock").clone();
+            if !diagnostic.trim().is_empty() {
+                eprintln!("datatest console output for {filename}:\n{diagnostic}");
+            }
         }
         (counts, failures)
     }));
