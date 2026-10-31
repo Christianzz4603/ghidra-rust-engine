@@ -283,3 +283,8 @@ println!("{}", builtins.decompile());
 ```
 
 This is an initial metadata reader, not a complete Kotlin source decompiler. It does not recover executable function bodies, and full signatures, type aliases, annotations, extension receivers, and complete string-table transformations require additional metadata schema support. For JVM bytecode, use the JVM processor support when built with the `jvm` feature; `.kotlin_builtins` contains declarations and type metadata rather than method bytecode.
+
+
+## Advanced binary intelligence foundation
+
+The `intelligence` module adds first-pass cross-reference, CFG, data-flow, prototype-evidence, function-fingerprint, and similarity APIs. Direct calls from the native call graph are marked confirmed. Constant-address memory references and assembly-parsed CFG targets are heuristic. CFG and prototype recovery remain preliminary: processor-semantic branch resolution, calling-convention parameter recovery, stack variables, value propagation, jump tables, and signature databases are future work. Similarity is a triage score, not proof of code equivalence.

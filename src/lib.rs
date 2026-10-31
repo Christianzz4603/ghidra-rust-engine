@@ -33,6 +33,7 @@ pub mod crc32;
 pub mod database;
 pub mod dex;
 pub mod kotlin;
+pub mod intelligence;
 pub mod double;
 pub mod dynamic;
 pub mod embedded_languages;
@@ -111,6 +112,7 @@ pub mod xml;
 pub mod xml_arch;
 
 pub use analysis::{AnalysisEngine, AnalysisEvent, AnalysisOptions, AnalysisReport, AnalysisSelection, FunctionAnalysis};
+pub use intelligence::{BasicBlock, BinaryIntelligence, Confidence, ControlFlowGraph, CrossReference, DataFlowSummary, FlowEdge, FlowKind, FunctionFingerprint, FunctionPrototype, IntelligenceReport, ReferenceKind, SimilarFunction, TypeEvidence};
 pub use error::{Error, Result};
 pub use program::{CallEdge, DataEntry, FunctionEntry, FunctionSource, Instruction, InstructionPcode, PcodeOperation, PcodeVarnode, Program, StringEntry, SymbolLoading};
 
