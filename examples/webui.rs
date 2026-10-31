@@ -244,10 +244,7 @@ fn status_line(message: &str) {
     eprintln!("[webui] {message}");
 }
 
-fn main() -> std::io::Result<()> {
-    let port = std::env::args().skip(1).find_map(|arg| {
-        arg.strip_prefix("--port=").and_then(|value| value.parse::<u16>().ok())
-    }).unwrap_or(8080);
+pub fn run(port: u16) -> std::io::Result<()> {
     let address = format!("127.0.0.1:{port}");
     let listener = TcpListener::bind(&address)?;
     let state: SharedProgram = Arc::new(Mutex::new(None));

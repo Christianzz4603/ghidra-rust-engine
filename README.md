@@ -123,17 +123,13 @@ cargo build --profile release-small --no-default-features --features mobile --ex
 Use the ordinary `--release` profile when maximum decompilation speed is the priority. Desktop users can keep the default `--release` build; no processor support is removed from the desktop defaults.
 
 
-## Local browser interface (Termux / Android)
+## Standalone browser workspace (Android / Termux)
 
-A lightweight, dependency-free local web interface is available as an example. It runs directly beside the Rust engine and does not require XFCE, X11, Node.js, or a separate web server:
+The browser workspace is compiled directly into the single `ghidra-rust_cli` executable. No `install-termux.sh`, `termux-open`, Node.js, XFCE, X11, or separate web UI binary is required.
 
-```sh
-cargo run --release --no-default-features --features mobile --example webui
-```
+Start it with `./ghidra-rust_cli web`, then manually open `http://127.0.0.1:8080` in Firefox or another browser. Use `./ghidra-rust_cli web --port=9090` to choose another port. The server binds only to `127.0.0.1` and is not exposed to your Wi-Fi network by default.
 
-Then open `http://127.0.0.1:8080` in the Android browser. To choose another port, pass `--port=9090`. Enter an absolute binary path such as `/sdcard/home/libminecraftpe.so`, open it, and select a discovered function to view pseudocode, assembly, or a small hex window. The server binds only to `127.0.0.1`; it is not exposed to your Wi-Fi network or Cloudflare Tunnel by default.
-
-The first version intentionally keeps analysis local and single-binary-at-a-time. It provides a foundation for the larger interactive workspace; graph navigation, persistent sessions, editable names/comments, and background/cancellable analysis are not implemented yet.
+The normal interactive console remains available by running `./ghidra-rust_cli`.
 
 ## Native library builds and signing
 
@@ -345,15 +341,9 @@ The `intelligence` module adds first-pass cross-reference, CFG, data-flow, proto
 
 Every push to `master` triggers a cross-platform release build. The workflow publishes the CLI executable and native libraries together as a GitHub Release, using the next patch version after the latest semantic Git tag (starting at `v0.0.1` when no version tags exist). A failed platform build prevents publication, so a release is not marked complete with missing targets.
 
-CLI archives are provided for Android `armeabi-v7a`, `arm64-v8a`, `x86`, and `x86_64`; Linux x86_64 and ARM64; Windows x64; and macOS Intel and Apple Silicon. Extract the archive and run `ghidra-rust_cli` (or `ghidra-rust_cli.exe` on Windows). On Android/Termux, mark the executable as runnable with `chmod +x ghidra-rust_cli`.
+Standalone, uncompressed CLI executables are provided directly as GitHub Release assets for Android `armeabi-v7a`, `arm64-v8a`, `x86`, and `x86_64`; Linux x86_64 and ARM64; Windows x64; and macOS Intel and Apple Silicon. Choose the asset matching your operating system and CPU architecture. Android assets are named `ghidra-rust_cli-Android-<ABI>`; other platforms use `ghidra-rust_cli-<platform>`. No ZIP, TAR, installer, or Termux setup script is needed.
 
-Commands:
-- `ghidra-rust_cli --version` prints the build version.
-- `ghidra-rust_cli setup` creates the user configuration and workspace directories.
-- `ghidra-rust_cli update` checks the latest stable GitHub Release and prints the download page.
-- Starting the interactive console checks for a newer release and prints an update notice when one is available. Checks are cached for six hours and require `curl`; lack of network access does not prevent the CLI from starting.
-
-The update notice is informational. It never replaces the running executable automatically; download the archive matching your operating system and CPU architecture from the release page.
+On Android/Termux, download the ARM64 executable, then run `chmod +x ghidra-rust_cli-Android-arm64-v8a` and `./ghidra-rust_cli-Android-arm64-v8a`. Launch the browser interface with `./ghidra-rust_cli-Android-arm64-v8a web`. The update notice is informational and points to GitHub Releases; it never replaces the running executable automatically.
 
 
 ### Release performance
