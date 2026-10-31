@@ -10,11 +10,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@1.88.0
+      - name: Install Rust (toolchain pinned in rust-toolchain.toml)
+        run: rustup toolchain install
       - name: Run library tests
         run: cargo test --lib
       - name: Build decompiler CLI
         run: cargo build --release --example decomp
       - name: Check ARM-focused mobile build
         run: cargo check --no-default-features --features mobile --examples
+      - name: Check all-processors build
+        run: cargo check --lib --no-default-features --features all-processors,demangle

@@ -23,7 +23,9 @@ pub fn ifc_load_file(args: &mut IStream, status: &mut IfaceStatus) -> IfaceResul
     let target;
     args.ws().read_word_into(&mut filename);
     if filename.is_empty() {
-        return Err(IfaceError::Parse("Usage: open <file> (or: load file <file>)".to_string()));
+        return Err(IfaceError::Parse(
+            "Usage: open <file> (or: load file <file>)".to_string(),
+        ));
     }
     if !args.eof() {
         target = filename.clone();
@@ -48,8 +50,7 @@ pub fn ifc_load_file(args: &mut IStream, status: &mut IfaceStatus) -> IfaceResul
         dcp.loader_slot = None;
         return Ok(());
     }
-                                                                   
-                                                                                      
+
     glb.read_loader_symbols()?;
     let description = glb.get_description();
     out_write(&optr, &format!("{filename} successfully loaded: {description}\n"));
@@ -122,7 +123,7 @@ pub fn ifc_restore(args: &mut IStream, status: &mut IfaceStatus) -> IfaceResult<
 
 pub fn register_console_commands(status: &mut IfaceStatus) {
     status.register_com(decomp_command(ifc_load_file), &["load", "file"]);
-    status.register_com(decomp_command(ifc_load_file), &["open"]);                              
+    status.register_com(decomp_command(ifc_load_file), &["open"]);
     status.register_com(decomp_command(ifc_addpath), &["addpath"]);
     status.register_com(decomp_command(ifc_save), &["save"]);
     status.register_com(decomp_command(ifc_restore), &["restore"]);
@@ -197,7 +198,7 @@ pub fn ifc_execute_test_command(args: &mut IStream, status: &mut IfaceStatus) ->
 
 #[cfg(test)]
 mod command_registration_tests {
-    use crate::interface::{new_out_stream, IfaceError, IfaceStatus};
+    use crate::interface::{IfaceError, IfaceStatus, new_out_stream};
 
     #[test]
     fn open_alias_is_registered_and_dispatched() {

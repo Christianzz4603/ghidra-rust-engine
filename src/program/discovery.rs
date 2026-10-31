@@ -60,8 +60,6 @@ impl Program {
         })
     }
 
-                                                                                 
-                                                                          
     pub fn discover_functions(&mut self) -> Result<()> {
         let mut seeds = Vec::new();
         if let Some(entry) = self.entry.take() {
