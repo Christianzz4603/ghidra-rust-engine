@@ -128,7 +128,7 @@ impl<'a> BinaryIntelligence<'a> {
             calls_by_function.entry(edge.caller).or_default().push(edge);
         }
         let mut r = IntelligenceReport {
-            call_edges: calls,
+            call_edges: calls.clone(),
             ..Default::default()
         };
         for f in fs {
