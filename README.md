@@ -92,6 +92,12 @@ cargo build --profile release-small --no-default-features --features mobile --ex
 
 Use the ordinary `--release` profile when maximum decompilation speed is the priority. Desktop users can keep the default `--release` build; no processor support is removed from the desktop defaults.
 
+## Native library builds and signing
+
+The GitHub Actions native-library workflow builds platform-specific library artifacts, including Windows `.dll`, macOS `.dylib`, Linux/Android `.so`, and Rust `.rlib` outputs where supported by the target. Build artifacts are published to GitHub Actions, and release builds can be attached to a GitHub Release.
+
+**The project does not sign the published native libraries.** Developers who download, integrate, or redistribute these artifacts are responsible for signing the binaries themselves when their platform, distribution channel, or deployment requirements call for it. Use the signing process appropriate to the target platform, such as Authenticode for Windows or Apple code signing for macOS. Linux and Android distribution requirements vary; do not treat a checksum as an operating-system code signature.
+
 ## Library usage
 
 ```rust
