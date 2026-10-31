@@ -137,6 +137,28 @@ pub struct DisassemblyReport {
     pub decoded_bytes: u64,
 }
 
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct CodeSectionSummary {
+    pub start: u64,
+    pub end: u64,
+    pub requested_bytes: u64,
+    pub decoded_bytes: u64,
+    pub undecoded_bytes: u64,
+    pub instruction_count: u64,
+    pub gap_count: u64,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct CodeScanSummary {
+    pub sections: Vec<CodeSectionSummary>,
+    pub requested_bytes: u64,
+    pub decoded_bytes: u64,
+    pub undecoded_bytes: u64,
+    pub instruction_count: u64,
+    pub gap_count: u64,
+}
+
+
 pub struct InstructionPcode {
     pub address: u64,
     pub length: usize,
@@ -943,6 +965,68 @@ impl Program {
                 requested_bytes: byte_length,
                 decoded_bytes,
             })
+        })
+    }
+
+    /// Sweep every executable section without retaining the complete instruction
+    /// listing in memory. Undecodable spans are reported through the callback.
+    pub fn scan_code_sections(
+        &self,
+        mut on_gap: impl FnMut(&DisassemblyGap) -> Result<()>,
+    ) -> Result<CodeScanSummary> {
+        panic_guard(|| {
+            let translate = self.architecture.translator()?;
+            let alignment = if self.language_id().to_ascii_lowercase().contains("aarch64") { 4u64 } else { 1u64 };
+            let mut summary = CodeScanSummary::default();
+            for section in &self.code_sections {
+                if section.start >= section.end { continue; }
+                let mut item = CodeSectionSummary {
+                    start: section.start,
+                    end: section.end,
+                    requested_bytes: section.end - section.start,
+                    ..Default::default()
+                };
+                let mut current = self.code_address(section.start)?;
+                let mut remaining = item.requested_bytes;
+                let mut gap_start = None;
+                let mut gap_length = 0u64;
+                while remaining > 0 {
+                    let mut text = InstructionText { mnemonic: String::new(), operands: String::new() };
+                    let decoded = translate.print_assembly(&mut text, &current);
+                    let length = decoded.ok().filter(|length| *length > 0)
+                        .map(|length| length as u64).filter(|length| *length <= remaining);
+                    if let Some(length) = length {
+                        if let Some(start) = gap_start.take() {
+                            on_gap(&DisassemblyGap { address: start, length: gap_length })?;
+                            item.gap_count += 1;
+                            item.undecoded_bytes += gap_length;
+                            gap_length = 0;
+                        }
+                        item.instruction_count += 1;
+                        item.decoded_bytes += length;
+                        current = current.add(length as i64);
+                        remaining -= length;
+                    } else {
+                        gap_start.get_or_insert(current.get_offset());
+                        let step = alignment.min(remaining);
+                        gap_length += step;
+                        current = current.add(step as i64);
+                        remaining -= step;
+                    }
+                }
+                if let Some(start) = gap_start {
+                    on_gap(&DisassemblyGap { address: start, length: gap_length })?;
+                    item.gap_count += 1;
+                    item.undecoded_bytes += gap_length;
+                }
+                summary.requested_bytes += item.requested_bytes;
+                summary.decoded_bytes += item.decoded_bytes;
+                summary.undecoded_bytes += item.undecoded_bytes;
+                summary.instruction_count += item.instruction_count;
+                summary.gap_count += item.gap_count;
+                summary.sections.push(item);
+            }
+            Ok(summary)
         })
     }
 

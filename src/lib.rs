@@ -120,7 +120,7 @@ pub use intelligence::{
     FunctionFingerprint, FunctionPrototype, IntelligenceReport, ReferenceKind, SimilarFunction, TypeEvidence,
 };
 pub use program::{
-    CallEdge, DataEntry, DisassemblyGap, DisassemblyReport, FunctionEntry, FunctionSource, Instruction, InstructionPcode,
+    CallEdge, CodeScanSummary, CodeSectionSummary, DataEntry, DisassemblyGap, DisassemblyReport, FunctionEntry, FunctionSource, Instruction, InstructionPcode,
     PcodeOperation, PcodeVarnode, Program, StringEntry, SymbolLoading,
 };
 

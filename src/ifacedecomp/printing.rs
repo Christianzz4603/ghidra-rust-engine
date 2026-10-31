@@ -682,6 +682,22 @@ pub fn ifc_analyze_all(args: &mut IStream, status: &mut IfaceStatus) -> IfaceRes
         .call_graph()
         .map_err(|err| IfaceError::Execution(format!("Cannot build call graph: {}", err.explain())))?;
     let csv = |value: &str| format!("\"{}\"", value.replace('\"', "\"\""));
+    let coverage_path = directory.join(format!("{binary_name}.coverage.csv"));
+    let mut coverage_file = std::fs::File::create(&coverage_path)
+        .map_err(|err| IfaceError::Execution(format!("Cannot create {}: {err}", coverage_path.display())))?;
+    writeln!(coverage_file, "record,section_start,section_end,address,bytes,decoded_bytes,instructions,gaps")
+        .map_err(|err| IfaceError::Execution(err.to_string()))?;
+    let code_coverage = program.scan_code_sections(|gap| {
+        writeln!(coverage_file, "gap,,,,{:#x},{},,", gap.address, gap.length)
+            .map_err(|err| Error::Lowlevel(err.to_string()))
+    }).map_err(|err| IfaceError::Execution(format!("Executable-section sweep failed: {}", err.explain())))?;
+    for section in &code_coverage.sections {
+        writeln!(coverage_file, "section,{:#x},{:#x},,{},{},{},{}",
+            section.start, section.end, section.requested_bytes, section.decoded_bytes,
+            section.instruction_count, section.gap_count)
+            .map_err(|err| IfaceError::Execution(err.to_string()))?;
+    }
+    coverage_file.flush().map_err(|err| IfaceError::Execution(err.to_string()))?;
     let intelligence = BinaryIntelligence::new(&mut program)
         .analyze_all()
         .map_err(|err| IfaceError::Execution(format!("Intelligence analysis failed: {}", err.explain())))?;
@@ -935,8 +951,9 @@ pub fn ifc_analyze_all(args: &mut IStream, status: &mut IfaceStatus) -> IfaceRes
     dataflow_file.flush().map_err(|err| IfaceError::Execution(err.to_string()))?;
     fingerprints_file.flush().map_err(|err| IfaceError::Execution(err.to_string()))?;
     let report = format!(
-        "GHIDRA-RUST-ENGINE ANALYSIS REPORT\n===============================\nInput file: {filename}\nDiscovered functions: {total}\nSuccessfully decompiled: {processed}\nFunctions with assembly exported: {assembly_ok}\nSize lookup failures: {size_failures}\nDisassembly failures: {assembly_failures}\nPartial disassemblies: {partial_disassemblies}\nUndecoded bytes in recovered function ranges: {undecoded_bytes}\nDecompilation failures: {decompile_failures}\nData symbols: {}\nStrings: {}\nCall edges: {}\nCross references: {}\nCFGs recovered: {}\nData-flow summaries: {}\nFingerprints: {}\nIntelligence failures: {}\n\nLIMITATIONS\n-----------\nFunction discovery is heuristic and may miss functions or include false positives. Assembly covers recovered function ranges only, not every executable byte. Decompiled C is inferred pseudocode, not original source or a guarantee of semantic equivalence. Xrefs, data references, function boundaries, names, and types may be incomplete. This engine does not claim IDA-equivalent completeness.\n\nDIAGNOSTICS\n-----------\n{}",
-        data.len(), strings.len(), calls.len(), intelligence.cross_references.len(),
+        "GHIDRA-RUST-ENGINE ANALYSIS REPORT\n===============================\nInput file: {filename}\nDiscovered functions: {total}\nSuccessfully decompiled: {processed}\nFunctions with assembly exported: {assembly_ok}\nSize lookup failures: {size_failures}\nDisassembly failures: {assembly_failures}\nPartial disassemblies: {partial_disassemblies}\nUndecoded bytes in recovered function ranges: {undecoded_bytes}\nDecompilation failures: {decompile_failures}\nData symbols: {}\nStrings: {}\nCall edges: {}\nExecutable bytes scanned: {}\nExecutable bytes decoded: {}\nUndecoded executable bytes: {}\nSweep instructions: {}\nSweep gaps: {}\nCross references: {}\nCFGs recovered: {}\nData-flow summaries: {}\nFingerprints: {}\nIntelligence failures: {}\n\nLIMITATIONS\n-----------\nFunction discovery is heuristic and may miss functions or include false positives. Assembly covers recovered function ranges only, not every executable byte. Decompiled C is inferred pseudocode, not original source or a guarantee of semantic equivalence. Xrefs, data references, function boundaries, names, and types may be incomplete. This engine does not claim IDA-equivalent completeness.\n\nDIAGNOSTICS\n-----------\n{}",
+        data.len(), strings.len(), calls.len(), code_coverage.requested_bytes, code_coverage.decoded_bytes,
+        code_coverage.undecoded_bytes, code_coverage.instruction_count, code_coverage.gap_count, intelligence.cross_references.len(),
         intelligence.control_flow_graphs.len(), intelligence.data_flow.len(), intelligence.fingerprints.len(),
         intelligence.failures.len(),
         if diagnostics.is_empty() { "No per-function failures reported.".to_string() } else { diagnostics.join("\n") }
@@ -946,7 +963,7 @@ pub fn ifc_analyze_all(args: &mut IStream, status: &mut IfaceStatus) -> IfaceRes
     out_write(
         &optr,
         &format!(
-            "\nAnalysis finished: {processed}/{total} functions decompiled; {skipped} operation(s) skipped.\nAssembly exported: {assembly_ok}/{total}. Failures: size={size_failures}, disassembly={assembly_failures}, decompilation={decompile_failures}.\nData symbols: {} | Strings: {} | Call edges: {}\nOutput folder: {}\nFiles: {binary_name}.c, {binary_name}.asm, {binary_name}.csv, {binary_name}.report.txt\n",
+            "\nAnalysis finished: {processed}/{total} functions decompiled; {skipped} operation(s) skipped.\nAssembly exported: {assembly_ok}/{total}. Failures: size={size_failures}, disassembly={assembly_failures}, decompilation={decompile_failures}.\nData symbols: {} | Strings: {} | Call edges: {}\nOutput folder: {}\nFiles: {binary_name}.c, {binary_name}.asm, {binary_name}.csv, {binary_name}.coverage.csv, {binary_name}.xrefs.csv, {binary_name}.cfg.csv, {binary_name}.dataflow.csv, {binary_name}.fingerprints.csv, {binary_name}.report.txt\n",
             data.len(), strings.len(), calls.len(), directory.display()
         ),
     );
