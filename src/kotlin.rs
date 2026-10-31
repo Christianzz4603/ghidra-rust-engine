@@ -268,7 +268,9 @@ mod tests {
 
     #[test]
     fn reads_metadata_version() {
-        let parsed = KotlinBuiltins::parse(vec![3, 1, 0, 7, 0x1a, 0]).unwrap();
-        assert_eq!(parsed.version(), &[1, 0, 7]);
+        let mut cursor = 0;
+        let version = read_version(&[3, 1, 0, 7], &mut cursor).unwrap();
+        assert_eq!(version, vec![1, 0, 7]);
+        assert_eq!(cursor, 4);
     }
 }
