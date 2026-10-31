@@ -164,7 +164,7 @@ jobs:
     if: github.event_name == 'release' && github.event.action == 'published'
     needs:
       - linux
-      - android-arm64
+      - android
       - windows
       - macos
     runs-on: ubuntu-24.04
