@@ -19,8 +19,18 @@ This runs whole-image analysis rather than requiring a function name. It discove
 
 The output directory contains:
 - `<library>.c`: combined C-like pseudocode for successfully decompiled functions.
-- `<library>.asm`: disassembly for recovered function ranges.
-- `<library>.csv`: discovered functions, data symbols, strings, and call edges.
+- `<library>.asm`: recovered function assembly, with undecodable gaps explicitly marked.
+- `<library>.csv`: discovered functions, data symbols, strings, call edges, and per-function status.
+- `<library>.coverage.csv`: a bounded-memory linear sweep of every executable section, including decoded-byte totals and undecodable address ranges. Linear decoding coverage does not prove that every decoded byte is reachable code.
+- `<library>.xrefs.csv`: call references and heuristic memory read/write references.
+- `<library>.cfg.csv`: recovered basic blocks and control-flow edges.
+- `<library>.dataflow.csv`: P-code operation counts, memory activity, constants, and observed storage widths.
+- `<library>.fingerprints.csv`: function byte hashes and opcode histograms.
+- `<library>.prototypes.csv`: prototype evidence and explicit notes about what has not yet been recovered.
+- `<library>.intelligence-failures.csv`: per-function failures from the intelligence passes.
+- `<library>.report.txt`: aggregate coverage, success/failure counts, and analysis limitations.
+
+Cross-references and CFG branch targets may be heuristic. Prototype records are evidence summaries, not reconstructed function signatures. Decompiled C remains inferred pseudocode, not original source.
 
 The output directory argument is optional. Without it, output is written to `/sdcard/home/analysis` on Termux. This is best-effort binary analysis, not recovery of the original source: stripped binaries, embedded data, jump tables, and code that cannot be reached from known seeds may require additional analysis.
 
