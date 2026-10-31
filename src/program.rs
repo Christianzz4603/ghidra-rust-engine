@@ -877,6 +877,38 @@ impl Program {
         panic_guard(|| self.pcode_unguarded(address, instruction_count))
     }
 
+    pub fn pcode_range(&self, address: u64, byte_length: u64) -> Result<Vec<InstructionPcode>> {
+        panic_guard(|| {
+            let translate = self.architecture.translator()?;
+            let mut current = self.code_address(address)?;
+            let mut remaining = byte_length;
+            let mut instructions = Vec::new();
+            while remaining > 0 {
+                let mut collector = OperationCollector {
+                    manager: &self.architecture.manager,
+                    operations: Vec::new(),
+                };
+                let length = translate.one_instruction(&mut collector, &current)?;
+                if length <= 0 {
+                    return Err(Error::Lowlevel(format!("invalid instruction length at {:#x}", current.get_offset())));
+                }
+                instructions.push(InstructionPcode {
+                    address: current.get_offset(),
+                    length: length as usize,
+                    operations: collector.operations,
+                });
+                current = current.add(i64::from(length));
+                remaining = remaining.saturating_sub(length as u64);
+            }
+            Ok(instructions)
+        })
+    }
+
+    pub fn function_pcode(&mut self, address: u64) -> Result<Vec<InstructionPcode>> {
+        let length = self.function_size(address)?;
+        self.pcode_range(address, length)
+    }
+
     fn pcode_unguarded(&self, address: u64, instruction_count: usize) -> Result<Vec<InstructionPcode>> {
         let translate = self.architecture.translator()?;
         let mut current = self.code_address(address)?;

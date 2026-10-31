@@ -5,7 +5,7 @@
 
 use std::path::Path;
 
-use crate::error::Result;
+use crate::error::{Error, Result};
 use crate::program::{CallEdge, DataEntry, FunctionEntry, Instruction, Program, StringEntry, SymbolLoading};
 
                                                                           
@@ -75,6 +75,15 @@ impl AnalysisSelection {
     }
 
     pub fn with_max_functions(mut self, maximum: usize) -> Self { self.max_functions = Some(maximum); self }
+
+    pub fn validate(&self) -> Result<()> {
+        if let (Some(start), Some(end)) = (self.start_address, self.end_address) {
+            if start >= end {
+                return Err(Error::Lowlevel(format!("invalid analysis range: start {start:#x} must be below end {end:#x}")));
+            }
+        }
+        Ok(())
+    }
 }
 
                                                                                 
@@ -160,6 +169,12 @@ impl AnalysisEngine {
         Ok(analyze_one(&mut self.program, &function, options))
     }
 
+    pub fn analyze_function_by_name(&mut self, name: &str, options: &AnalysisOptions) -> Result<FunctionAnalysis> {
+        let function = self.program.find_function_by_name(name)?
+            .ok_or_else(|| Error::Lowlevel(format!("function not found: {name}")))?;
+        Ok(analyze_one(&mut self.program, &function, options))
+    }
+
                                                                               
        
                                                                                    
@@ -179,6 +194,7 @@ impl AnalysisEngine {
         selection: &AnalysisSelection,
         mut on_event: impl FnMut(AnalysisEvent),
     ) -> Result<AnalysisReport> {
+        selection.validate()?;
         if options.discover_functions {
             self.program.discover_functions()?;
         }
@@ -288,6 +304,13 @@ mod tests {
         assert_eq!(selection.start_address, Some(0x80));
         assert_eq!(selection.end_address, Some(0x300));
         assert_eq!(selection.max_functions, Some(1));
+    }
+
+    #[test]
+    fn invalid_address_range_is_rejected() {
+        let selection = super::AnalysisSelection::default().with_address_range(0x300, 0x100);
+        assert!(selection.validate().is_err());
+        assert!(super::AnalysisSelection::default().with_address_range(0x100, 0x300).validate().is_ok());
     }
 
     #[test]
