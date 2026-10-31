@@ -15,9 +15,9 @@ fn version() -> &'static str {
 }
 
 fn home_dir() -> Option<PathBuf> {
-    std::env::var_os("HOME").map(PathBuf::from).or_else(|| {
-        std::env::var_os("USERPROFILE").map(PathBuf::from)
-    })
+    std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("USERPROFILE").map(PathBuf::from))
 }
 
 fn cache_path() -> Option<PathBuf> {
@@ -50,12 +50,17 @@ fn version_parts(value: &str) -> Option<(u64, u64, u64)> {
 fn fetch_latest_tag() -> Option<String> {
     let cache = cache_path()?;
     let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH).ok()?.as_secs();
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()?
+        .as_secs();
 
     if let Ok(contents) = fs::read_to_string(&cache) {
         let mut lines = contents.lines();
         if let (Some(timestamp), Some(tag)) = (lines.next(), lines.next()) {
-            if timestamp.parse::<u64>().is_ok_and(|time| now.saturating_sub(time) < 21_600) {
+            if timestamp
+                .parse::<u64>()
+                .is_ok_and(|time| now.saturating_sub(time) < 21_600)
+            {
                 return Some(tag.to_string());
             }
         }
@@ -63,10 +68,18 @@ fn fetch_latest_tag() -> Option<String> {
 
     let output = Command::new("curl")
         .args([
-            "--silent", "--show-error", "--fail", "--location",
-            "--connect-timeout", "2", "--max-time", "4",
-            "--header", "Accept: application/vnd.github+json",
-            "--header", "User-Agent: ghidra-rust-engine",
+            "--silent",
+            "--show-error",
+            "--fail",
+            "--location",
+            "--connect-timeout",
+            "2",
+            "--max-time",
+            "4",
+            "--header",
+            "Accept: application/vnd.github+json",
+            "--header",
+            "User-Agent: ghidra-rust-engine",
             API_URL,
         ])
         .output()
@@ -127,7 +140,10 @@ fn print_update_status() {
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().collect();
-    if args.get(1).is_some_and(|arg| arg == "--help" || arg == "-h" || arg == "help") {
+    if args
+        .get(1)
+        .is_some_and(|arg| arg == "--help" || arg == "-h" || arg == "help")
+    {
         println!("Ghidra Rust Engine {}", version());
         println!("Usage: ghidra-rust_cli [--version | --help | setup | update]");
         println!();
@@ -137,7 +153,10 @@ fn main() -> ExitCode {
         println!("Set GHIDRA_DECOMPILER_OUTPUT_DIR to choose another output folder.");
         return ExitCode::SUCCESS;
     }
-    if args.get(1).is_some_and(|arg| arg == "--version" || arg == "-V" || arg == "version") {
+    if args
+        .get(1)
+        .is_some_and(|arg| arg == "--version" || arg == "-V" || arg == "version")
+    {
         println!("ghidra-engine {}", version());
         return ExitCode::SUCCESS;
     }
@@ -154,7 +173,6 @@ fn main() -> ExitCode {
         print_update_status();
         return ExitCode::SUCCESS;
     }
-
 
     let mut initscript: Option<String> = None;
     let mut extrapaths: Vec<String> = Vec::new();
@@ -183,7 +201,11 @@ fn main() -> ExitCode {
         }
     }
     let optr = new_out_stream();
-    let mut status = IfaceStatus::new_term("[ghidra-engine]> ", Box::new(BufReader::new(std::io::stdin())), optr.clone());
+    let mut status = IfaceStatus::new_term(
+        "[ghidra-engine]> ",
+        Box::new(BufReader::new(std::io::stdin())),
+        optr.clone(),
+    );
     status.attach_sink(&optr, Box::new(std::io::stdout()));
     register_all_commands(&mut status);
     register_console_commands(&mut status);

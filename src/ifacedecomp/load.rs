@@ -160,7 +160,9 @@ pub fn ifc_funcload(args: &mut IStream, status: &mut IfaceStatus) -> IfaceResult
     let mut funcname = String::new();
     args.ws().read_word_into(&mut funcname);
     if funcname.is_empty() {
-        return Err(IfaceError::Parse("Usage: select <function> (or: load function <function>)".to_string()));
+        return Err(IfaceError::Parse(
+            "Usage: select <function> (or: load function <function>)".to_string(),
+        ));
     }
     let dcp = decomp_data(status);
     let glb = conf_mut(dcp, "No image loaded")?;

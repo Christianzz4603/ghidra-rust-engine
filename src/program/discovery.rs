@@ -60,8 +60,6 @@ impl Program {
         })
     }
 
-                                                                                 
-                                                                          
     pub fn discover_functions(&mut self) -> Result<()> {
         let mut seeds = Vec::new();
         if let Some(entry) = self.entry.take() {
@@ -124,9 +122,7 @@ impl Program {
                             return false;
                         }
                         let start = next * 4;
-                        let following = u32::from_le_bytes(
-                            bytes[start..start + 4].try_into().unwrap(),
-                        );
+                        let following = u32::from_le_bytes(bytes[start..start + 4].try_into().unwrap());
                         following & STP_FP_LR_PREINDEX_MASK == STP_FP_LR_PREINDEX
                     });
                     if has_frame_setup {
