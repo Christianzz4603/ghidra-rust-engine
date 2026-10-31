@@ -9,6 +9,9 @@ exclude = ["/tests", "/tools", "/fuzz", "/reference", "/ci", "/.github", "/rust-
 authors = ["Jan Bujak <j@exia.io>"]
 repository = "https://github.com/koute/ghidra-decompiler"
 
+[lib]
+crate-type = ["rlib", "cdylib", "staticlib"]
+
 [dependencies]
 cpp_demangle = { version = "0.5.1", optional = true }
 lzma-rs = "0.3"
