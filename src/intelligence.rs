@@ -1,36 +1,493 @@
-use std::collections::{BTreeMap,BTreeSet};
 use crate::error::Result;
-use crate::opcodes::{get_opname,OpCode};
-use crate::program::{CallEdge,FunctionEntry,Instruction,Program};
-#[derive(Clone,Copy,Debug,PartialEq,Eq,PartialOrd,Ord,Hash)] pub enum ReferenceKind{Call,Read,Write,Branch,Data}
-#[derive(Clone,Copy,Debug,PartialEq,Eq)] pub enum Confidence{Confirmed,Heuristic}
-#[derive(Clone,Debug,PartialEq,Eq)] pub struct CrossReference{pub from:u64,pub to:u64,pub kind:ReferenceKind,pub function:Option<u64>,pub confidence:Confidence}
-#[derive(Clone,Debug,PartialEq,Eq)] pub struct BasicBlock{pub start:u64,pub end:u64,pub instructions:Vec<Instruction>}
-#[derive(Clone,Copy,Debug,PartialEq,Eq)] pub enum FlowKind{Fallthrough,Branch,ConditionalBranch,Call,Return}
-#[derive(Clone,Debug,PartialEq,Eq)] pub struct FlowEdge{pub from:u64,pub to:Option<u64>,pub kind:FlowKind,pub confidence:Confidence}
-#[derive(Clone,Debug,PartialEq,Eq)] pub struct ControlFlowGraph{pub function:u64,pub blocks:Vec<BasicBlock>,pub edges:Vec<FlowEdge>}
-#[derive(Clone,Debug,PartialEq,Eq)] pub struct TypeEvidence{pub storage_size:u32,pub operations:usize,pub integer_operations:usize,pub floating_operations:usize,pub pointer_operations:usize}
-#[derive(Clone,Debug,PartialEq,Eq)] pub struct DataFlowSummary{pub instruction_count:usize,pub operation_count:usize,pub definitions:usize,pub memory_reads:usize,pub memory_writes:usize,pub calls:usize,pub branches:usize,pub returns:usize,pub constants:Vec<u64>,pub type_evidence:Vec<TypeEvidence>}
-#[derive(Clone,Debug,PartialEq,Eq)] pub struct FunctionPrototype{pub address:u64,pub name:String,pub return_size_evidence:Vec<u32>,pub parameter_registers:Vec<String>,pub confidence:Confidence,pub notes:Vec<String>}
-#[derive(Clone,Debug,PartialEq,Eq)] pub struct FunctionFingerprint{pub address:u64,pub name:String,pub instruction_count:usize,pub operation_count:usize,pub opcode_histogram:BTreeMap<String,usize>,pub byte_hash:u64}
-#[derive(Clone,Debug,PartialEq)] pub struct SimilarFunction{pub address:u64,pub name:String,pub score:f32}
-#[derive(Clone,Debug,Default)] pub struct IntelligenceReport{pub cross_references:Vec<CrossReference>,pub control_flow_graphs:Vec<ControlFlowGraph>,pub data_flow:Vec<DataFlowSummary>,pub prototypes:Vec<FunctionPrototype>,pub fingerprints:Vec<FunctionFingerprint>,pub call_edges:Vec<CallEdge>}
-pub struct BinaryIntelligence<'a>{program:&'a mut Program}
-impl<'a> BinaryIntelligence<'a>{
- pub fn new(program:&'a mut Program)->Self{Self{program}}
- pub fn analyze_all(&mut self)->Result<IntelligenceReport>{let fs=self.program.functions()?;let calls=self.program.call_graph()?;let mut r=IntelligenceReport{call_edges:calls.clone(),..Default::default()};for f in fs{self.one(&f,&calls,&mut r)?;}r.cross_references.sort_by_key(|x|(x.to,x.from,x.kind));r.cross_references.dedup();Ok(r)}
- pub fn analyze_one(&mut self,a:u64)->Result<IntelligenceReport>{let f=self.program.ensure_function_at(a,None)?;let c=self.program.call_graph()?;let mut r=IntelligenceReport{call_edges:c.clone(),..Default::default()};self.one(&f,&c,&mut r)?;Ok(r)}
- pub fn references_to(&mut self,a:u64)->Result<Vec<CrossReference>>{Ok(self.analyze_all()?.cross_references.into_iter().filter(|x|x.to==a).collect())}
- pub fn references_from(&mut self,a:u64)->Result<Vec<CrossReference>>{Ok(self.analyze_all()?.cross_references.into_iter().filter(|x|x.from==a).collect())}
- pub fn similar_functions(&mut self,a:u64,n:usize)->Result<Vec<SimilarFunction>>{let fs=self.program.functions()?;let mut all=Vec::new();for f in fs{all.push(self.fp(&f)?);}let Some(t)=all.iter().find(|x|x.address==a).cloned()else{return Ok(Vec::new())};let mut v:Vec<_>=all.into_iter().filter(|x|x.address!=a).map(|x|SimilarFunction{address:x.address,name:x.name.clone(),score:sim(&t,&x)}).collect();v.sort_by(|a,b|b.score.total_cmp(&a.score));v.truncate(n);Ok(v)}
- fn one(&mut self,f:&FunctionEntry,c:&[CallEdge],r:&mut IntelligenceReport)->Result<()>{let n=self.program.function_size(f.address)?;if n==0{return Ok(())}let ins=self.program.disassemble_range(f.address,n)?;let pc=self.program.function_pcode(f.address)?;let d=flow(&pc);r.prototypes.push(FunctionPrototype{address:f.address,name:f.name.clone(),return_size_evidence:d.type_evidence.iter().map(|x|x.storage_size).collect(),parameter_registers:Vec::new(),confidence:Confidence::Heuristic,notes:vec!["Storage-width evidence only; calling-convention and parameter recovery are not implemented.".into()]});r.data_flow.push(d);r.fingerprints.push(fp(f,&ins,&pc));r.control_flow_graphs.push(cfg(f.address,ins));for e in c.iter().filter(|e|e.caller==f.address){r.cross_references.push(CrossReference{from:e.call_site,to:e.callee,kind:ReferenceKind::Call,function:Some(f.address),confidence:Confidence::Confirmed});}for i in pc{for p in i.operations{if let Some(v)=p.inputs.get(1).filter(|v|v.space=="const"){let k=match p.opcode{OpCode::Load=>Some(ReferenceKind::Read),OpCode::Store=>Some(ReferenceKind::Write),_=>None};if let Some(kind)=k{r.cross_references.push(CrossReference{from:i.address,to:v.offset,kind,function:Some(f.address),confidence:Confidence::Heuristic});}}}}Ok(())}
- fn fp(&mut self,f:&FunctionEntry)->Result<FunctionFingerprint>{let n=self.program.function_size(f.address)?;let i=if n==0{Vec::new()}else{self.program.disassemble_range(f.address,n)?};let p=if n==0{Vec::new()}else{self.program.function_pcode(f.address)?};Ok(fp(f,&i,&p))}
+use crate::opcodes::{OpCode, get_opname};
+use crate::program::{CallEdge, FunctionEntry, Instruction, Program};
+use std::collections::{BTreeMap, BTreeSet};
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum ReferenceKind {
+    Call,
+    Read,
+    Write,
+    Branch,
+    Data,
 }
-fn flow(pc:&[crate::program::InstructionPcode])->DataFlowSummary{let(mut rd,mut wr,mut ca,mut br,mut rt,mut df,mut count)=(0,0,0,0,0,0,0);let mut cs=BTreeSet::new();let mut ts:BTreeMap<u32,TypeEvidence>=BTreeMap::new();for i in pc{for p in &i.operations{count+=1;if p.output.is_some(){df+=1;}match p.opcode{OpCode::Load=>rd+=1,OpCode::Store=>wr+=1,OpCode::Call|OpCode::Callind|OpCode::Callother=>ca+=1,OpCode::Branch|OpCode::Cbranch|OpCode::Branchind=>br+=1,OpCode::Return=>rt+=1,_=>{}}for v in &p.inputs{if v.space=="const"{cs.insert(v.offset);}}if let Some(v)=&p.output{let e=ts.entry(v.size).or_insert(TypeEvidence{storage_size:v.size,operations:0,integer_operations:0,floating_operations:0,pointer_operations:0});e.operations+=1;if matches!(p.opcode,OpCode::IntAdd|OpCode::IntSub|OpCode::IntMult|OpCode::IntAnd|OpCode::IntOr|OpCode::IntXor){e.integer_operations+=1;}if matches!(p.opcode,OpCode::FloatAdd|OpCode::FloatSub|OpCode::FloatMult|OpCode::FloatDiv){e.floating_operations+=1;}if matches!(p.opcode,OpCode::Load|OpCode::Store|OpCode::Ptradd|OpCode::Ptrsub){e.pointer_operations+=1;}}}}DataFlowSummary{instruction_count:pc.len(),operation_count:count,definitions:df,memory_reads:rd,memory_writes:wr,calls:ca,branches:br,returns:rt,constants:cs.into_iter().collect(),type_evidence:ts.into_values().collect()}}
-fn fp(f:&FunctionEntry,i:&[Instruction],p:&[crate::program::InstructionPcode])->FunctionFingerprint{let mut h=0xcbf29ce484222325u64;for x in i{for b in &x.bytes{h^=u64::from(*b);h=h.wrapping_mul(0x100000001b3);}}let mut hist=BTreeMap::new();for x in p{for o in &x.operations{*hist.entry(get_opname(o.opcode).to_string()).or_insert(0)+=1;}}FunctionFingerprint{address:f.address,name:f.name.clone(),instruction_count:i.len(),operation_count:p.iter().map(|x|x.operations.len()).sum(),opcode_histogram:hist,byte_hash:h}}
-fn sim(a:&FunctionFingerprint,b:&FunctionFingerprint)->f32{let keys:BTreeSet<_>=a.opcode_histogram.keys().chain(b.opcode_histogram.keys()).collect();let(mut x,mut y)=(0usize,0usize);for k in keys{let l=*a.opcode_histogram.get(k).unwrap_or(&0);let r=*b.opcode_histogram.get(k).unwrap_or(&0);x+=l.min(r);y+=l.max(r);}let op=if y==0{1.0}else{x as f32/y as f32};let sz=if a.instruction_count.max(b.instruction_count)==0{1.0}else{a.instruction_count.min(b.instruction_count)as f32/a.instruction_count.max(b.instruction_count)as f32};op*0.8+sz*0.2}
-fn cfg(f:u64,i:Vec<Instruction>)->ControlFlowGraph{if i.is_empty(){return ControlFlowGraph{function:f,blocks:vec![],edges:vec![]}}let mut leaders=BTreeSet::from([i[0].address]);let mut targets=BTreeMap::new();for(n,x)in i.iter().enumerate(){let m=x.mnemonic.to_ascii_lowercase();if let Some(t)=hex(&x.operands){if t>=i[0].address&&t<=i.last().unwrap().address{leaders.insert(t);targets.insert(x.address,t);}}if term(&m)&&n+1<i.len(){leaders.insert(i[n+1].address);}}let mut blocks=Vec::new();let mut cur=Vec::new();for x in i{if !cur.is_empty()&&leaders.contains(&x.address){blocks.push(mk(std::mem::take(&mut cur)));}cur.push(x);}if !cur.is_empty(){blocks.push(mk(cur));}let mut edges=Vec::new();for(n,b)in blocks.iter().enumerate(){let Some(last)=b.instructions.last()else{continue};let m=last.mnemonic.to_ascii_lowercase();let next=blocks.get(n+1).map(|x|x.start);let t=targets.get(&last.address).copied();if ret(&m){edges.push(FlowEdge{from:b.start,to:None,kind:FlowKind::Return,confidence:Confidence::Confirmed});}else if cond(&m){edges.push(FlowEdge{from:b.start,to:t,kind:FlowKind::ConditionalBranch,confidence:Confidence::Heuristic});if let Some(to)=next{edges.push(FlowEdge{from:b.start,to:Some(to),kind:FlowKind::Fallthrough,confidence:Confidence::Confirmed});}}else if jump(&m){edges.push(FlowEdge{from:b.start,to:t,kind:FlowKind::Branch,confidence:Confidence::Heuristic});}else{if let Some(to)=next{edges.push(FlowEdge{from:b.start,to:Some(to),kind:FlowKind::Fallthrough,confidence:Confidence::Confirmed});}if call(&m){if let Some(to)=t{edges.push(FlowEdge{from:b.start,to:Some(to),kind:FlowKind::Call,confidence:Confidence::Heuristic});}}}}ControlFlowGraph{function:f,blocks,edges}}
-fn mk(v:Vec<Instruction>)->BasicBlock{let s=v.first().map(|x|x.address).unwrap_or(0);let e=v.last().map(|x|x.address.saturating_add(x.length as u64)).unwrap_or(s);BasicBlock{start:s,end:e,instructions:v}}
-fn hex(s:&str)->Option<u64>{let b=s.as_bytes();for n in 0..b.len().saturating_sub(2){if b[n]==b'0'&&matches!(b[n+1],b'x'|b'X'){let mut e=n+2;while e<b.len()&&b[e].is_ascii_hexdigit(){e+=1;}if let Ok(v)=u64::from_str_radix(&s[n+2..e],16){return Some(v)}}}None}
-fn ret(m:&str)->bool{m.starts_with("ret")||m=="bx lr"||m=="jr ra"} fn call(m:&str)->bool{m.starts_with("call")||matches!(m,"bl"|"blx"|"jal"|"jalr")} fn jump(m:&str)->bool{matches!(m,"jmp"|"jmpq"|"b"|"br"|"jr")} fn cond(m:&str)->bool{(m.starts_with('j')&&!jump(m))||m.starts_with("b.")||(m.starts_with('b')&&m.len()>1&&!matches!(m,"bl"|"blx"|"br"))||m.starts_with("cbz")||m.starts_with("cbnz")||m.starts_with("tbz")||m.starts_with("tbnz")} fn term(m:&str)->bool{ret(m)||call(m)||jump(m)||cond(m)}
-#[cfg(test)]mod tests{use super::*;#[test]fn parses_hex(){assert_eq!(hex("r0, 0x1234"),Some(0x1234));}}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Confidence {
+    Confirmed,
+    Heuristic,
+}
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CrossReference {
+    pub from: u64,
+    pub to: u64,
+    pub kind: ReferenceKind,
+    pub function: Option<u64>,
+    pub confidence: Confidence,
+}
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BasicBlock {
+    pub start: u64,
+    pub end: u64,
+    pub instructions: Vec<Instruction>,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FlowKind {
+    Fallthrough,
+    Branch,
+    ConditionalBranch,
+    Call,
+    Return,
+}
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FlowEdge {
+    pub from: u64,
+    pub to: Option<u64>,
+    pub kind: FlowKind,
+    pub confidence: Confidence,
+}
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ControlFlowGraph {
+    pub function: u64,
+    pub blocks: Vec<BasicBlock>,
+    pub edges: Vec<FlowEdge>,
+}
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TypeEvidence {
+    pub storage_size: u32,
+    pub operations: usize,
+    pub integer_operations: usize,
+    pub floating_operations: usize,
+    pub pointer_operations: usize,
+}
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DataFlowSummary {
+    pub instruction_count: usize,
+    pub operation_count: usize,
+    pub definitions: usize,
+    pub memory_reads: usize,
+    pub memory_writes: usize,
+    pub calls: usize,
+    pub branches: usize,
+    pub returns: usize,
+    pub constants: Vec<u64>,
+    pub type_evidence: Vec<TypeEvidence>,
+}
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FunctionPrototype {
+    pub address: u64,
+    pub name: String,
+    pub return_size_evidence: Vec<u32>,
+    pub parameter_registers: Vec<String>,
+    pub confidence: Confidence,
+    pub notes: Vec<String>,
+}
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FunctionFingerprint {
+    pub address: u64,
+    pub name: String,
+    pub instruction_count: usize,
+    pub operation_count: usize,
+    pub opcode_histogram: BTreeMap<String, usize>,
+    pub byte_hash: u64,
+}
+#[derive(Clone, Debug, PartialEq)]
+pub struct SimilarFunction {
+    pub address: u64,
+    pub name: String,
+    pub score: f32,
+}
+#[derive(Clone, Debug, Default)]
+pub struct IntelligenceReport {
+    pub cross_references: Vec<CrossReference>,
+    pub control_flow_graphs: Vec<ControlFlowGraph>,
+    pub data_flow: Vec<DataFlowSummary>,
+    pub prototypes: Vec<FunctionPrototype>,
+    pub fingerprints: Vec<FunctionFingerprint>,
+    pub call_edges: Vec<CallEdge>,
+}
+pub struct BinaryIntelligence<'a> {
+    program: &'a mut Program,
+}
+impl<'a> BinaryIntelligence<'a> {
+    pub fn new(program: &'a mut Program) -> Self {
+        Self { program }
+    }
+    pub fn analyze_all(&mut self) -> Result<IntelligenceReport> {
+        let fs = self.program.functions()?;
+        let calls = self.program.call_graph()?;
+        let mut r = IntelligenceReport {
+            call_edges: calls.clone(),
+            ..Default::default()
+        };
+        for f in fs {
+            self.one(&f, &calls, &mut r)?;
+        }
+        r.cross_references.sort_by_key(|x| (x.to, x.from, x.kind));
+        r.cross_references.dedup();
+        Ok(r)
+    }
+    pub fn analyze_one(&mut self, a: u64) -> Result<IntelligenceReport> {
+        let f = self.program.ensure_function_at(a, None)?;
+        let c = self.program.call_graph()?;
+        let mut r = IntelligenceReport {
+            call_edges: c.clone(),
+            ..Default::default()
+        };
+        self.one(&f, &c, &mut r)?;
+        Ok(r)
+    }
+    pub fn references_to(&mut self, a: u64) -> Result<Vec<CrossReference>> {
+        Ok(self
+            .analyze_all()?
+            .cross_references
+            .into_iter()
+            .filter(|x| x.to == a)
+            .collect())
+    }
+    pub fn references_from(&mut self, a: u64) -> Result<Vec<CrossReference>> {
+        Ok(self
+            .analyze_all()?
+            .cross_references
+            .into_iter()
+            .filter(|x| x.from == a)
+            .collect())
+    }
+    pub fn similar_functions(&mut self, a: u64, n: usize) -> Result<Vec<SimilarFunction>> {
+        let fs = self.program.functions()?;
+        let mut all = Vec::new();
+        for f in fs {
+            all.push(self.fp(&f)?);
+        }
+        let Some(t) = all.iter().find(|x| x.address == a).cloned() else {
+            return Ok(Vec::new());
+        };
+        let mut v: Vec<_> = all
+            .into_iter()
+            .filter(|x| x.address != a)
+            .map(|x| SimilarFunction {
+                address: x.address,
+                name: x.name.clone(),
+                score: sim(&t, &x),
+            })
+            .collect();
+        v.sort_by(|a, b| b.score.total_cmp(&a.score));
+        v.truncate(n);
+        Ok(v)
+    }
+    fn one(&mut self, f: &FunctionEntry, c: &[CallEdge], r: &mut IntelligenceReport) -> Result<()> {
+        let n = self.program.function_size(f.address)?;
+        if n == 0 {
+            return Ok(());
+        }
+        let ins = self.program.disassemble_range(f.address, n)?;
+        let pc = self.program.function_pcode(f.address)?;
+        let d = flow(&pc);
+        r.prototypes.push(FunctionPrototype {
+            address: f.address,
+            name: f.name.clone(),
+            return_size_evidence: d.type_evidence.iter().map(|x| x.storage_size).collect(),
+            parameter_registers: Vec::new(),
+            confidence: Confidence::Heuristic,
+            notes: vec![
+                "Storage-width evidence only; calling-convention and parameter recovery are not implemented.".into(),
+            ],
+        });
+        r.data_flow.push(d);
+        r.fingerprints.push(fp(f, &ins, &pc));
+        r.control_flow_graphs.push(cfg(f.address, ins));
+        for e in c.iter().filter(|e| e.caller == f.address) {
+            r.cross_references.push(CrossReference {
+                from: e.call_site,
+                to: e.callee,
+                kind: ReferenceKind::Call,
+                function: Some(f.address),
+                confidence: Confidence::Confirmed,
+            });
+        }
+        for i in pc {
+            for p in i.operations {
+                if let Some(v) = p.inputs.get(1).filter(|v| v.space == "const") {
+                    let k = match p.opcode {
+                        OpCode::Load => Some(ReferenceKind::Read),
+                        OpCode::Store => Some(ReferenceKind::Write),
+                        _ => None,
+                    };
+                    if let Some(kind) = k {
+                        r.cross_references.push(CrossReference {
+                            from: i.address,
+                            to: v.offset,
+                            kind,
+                            function: Some(f.address),
+                            confidence: Confidence::Heuristic,
+                        });
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+    fn fp(&mut self, f: &FunctionEntry) -> Result<FunctionFingerprint> {
+        let n = self.program.function_size(f.address)?;
+        let i = if n == 0 {
+            Vec::new()
+        } else {
+            self.program.disassemble_range(f.address, n)?
+        };
+        let p = if n == 0 {
+            Vec::new()
+        } else {
+            self.program.function_pcode(f.address)?
+        };
+        Ok(fp(f, &i, &p))
+    }
+}
+fn flow(pc: &[crate::program::InstructionPcode]) -> DataFlowSummary {
+    let (mut rd, mut wr, mut ca, mut br, mut rt, mut df, mut count) = (0, 0, 0, 0, 0, 0, 0);
+    let mut cs = BTreeSet::new();
+    let mut ts: BTreeMap<u32, TypeEvidence> = BTreeMap::new();
+    for i in pc {
+        for p in &i.operations {
+            count += 1;
+            if p.output.is_some() {
+                df += 1;
+            }
+            match p.opcode {
+                OpCode::Load => rd += 1,
+                OpCode::Store => wr += 1,
+                OpCode::Call | OpCode::Callind | OpCode::Callother => ca += 1,
+                OpCode::Branch | OpCode::Cbranch | OpCode::Branchind => br += 1,
+                OpCode::Return => rt += 1,
+                _ => {}
+            }
+            for v in &p.inputs {
+                if v.space == "const" {
+                    cs.insert(v.offset);
+                }
+            }
+            if let Some(v) = &p.output {
+                let e = ts.entry(v.size).or_insert(TypeEvidence {
+                    storage_size: v.size,
+                    operations: 0,
+                    integer_operations: 0,
+                    floating_operations: 0,
+                    pointer_operations: 0,
+                });
+                e.operations += 1;
+                if matches!(
+                    p.opcode,
+                    OpCode::IntAdd | OpCode::IntSub | OpCode::IntMult | OpCode::IntAnd | OpCode::IntOr | OpCode::IntXor
+                ) {
+                    e.integer_operations += 1;
+                }
+                if matches!(
+                    p.opcode,
+                    OpCode::FloatAdd | OpCode::FloatSub | OpCode::FloatMult | OpCode::FloatDiv
+                ) {
+                    e.floating_operations += 1;
+                }
+                if matches!(p.opcode, OpCode::Load | OpCode::Store | OpCode::Ptradd | OpCode::Ptrsub) {
+                    e.pointer_operations += 1;
+                }
+            }
+        }
+    }
+    DataFlowSummary {
+        instruction_count: pc.len(),
+        operation_count: count,
+        definitions: df,
+        memory_reads: rd,
+        memory_writes: wr,
+        calls: ca,
+        branches: br,
+        returns: rt,
+        constants: cs.into_iter().collect(),
+        type_evidence: ts.into_values().collect(),
+    }
+}
+fn fp(f: &FunctionEntry, i: &[Instruction], p: &[crate::program::InstructionPcode]) -> FunctionFingerprint {
+    let mut h = 0xcbf29ce484222325u64;
+    for x in i {
+        for b in &x.bytes {
+            h ^= u64::from(*b);
+            h = h.wrapping_mul(0x100000001b3);
+        }
+    }
+    let mut hist = BTreeMap::new();
+    for x in p {
+        for o in &x.operations {
+            *hist.entry(get_opname(o.opcode).to_string()).or_insert(0) += 1;
+        }
+    }
+    FunctionFingerprint {
+        address: f.address,
+        name: f.name.clone(),
+        instruction_count: i.len(),
+        operation_count: p.iter().map(|x| x.operations.len()).sum(),
+        opcode_histogram: hist,
+        byte_hash: h,
+    }
+}
+fn sim(a: &FunctionFingerprint, b: &FunctionFingerprint) -> f32 {
+    let keys: BTreeSet<_> = a.opcode_histogram.keys().chain(b.opcode_histogram.keys()).collect();
+    let (mut x, mut y) = (0usize, 0usize);
+    for k in keys {
+        let l = *a.opcode_histogram.get(k).unwrap_or(&0);
+        let r = *b.opcode_histogram.get(k).unwrap_or(&0);
+        x += l.min(r);
+        y += l.max(r);
+    }
+    let op = if y == 0 { 1.0 } else { x as f32 / y as f32 };
+    let sz = if a.instruction_count.max(b.instruction_count) == 0 {
+        1.0
+    } else {
+        a.instruction_count.min(b.instruction_count) as f32 / a.instruction_count.max(b.instruction_count) as f32
+    };
+    op * 0.8 + sz * 0.2
+}
+fn cfg(f: u64, i: Vec<Instruction>) -> ControlFlowGraph {
+    if i.is_empty() {
+        return ControlFlowGraph {
+            function: f,
+            blocks: vec![],
+            edges: vec![],
+        };
+    }
+    let mut leaders = BTreeSet::from([i[0].address]);
+    let mut targets = BTreeMap::new();
+    for (n, x) in i.iter().enumerate() {
+        let m = x.mnemonic.to_ascii_lowercase();
+        if let Some(t) = hex(&x.operands) {
+            if t >= i[0].address && t <= i.last().unwrap().address {
+                leaders.insert(t);
+                targets.insert(x.address, t);
+            }
+        }
+        if term(&m) && n + 1 < i.len() {
+            leaders.insert(i[n + 1].address);
+        }
+    }
+    let mut blocks = Vec::new();
+    let mut cur = Vec::new();
+    for x in i {
+        if !cur.is_empty() && leaders.contains(&x.address) {
+            blocks.push(mk(std::mem::take(&mut cur)));
+        }
+        cur.push(x);
+    }
+    if !cur.is_empty() {
+        blocks.push(mk(cur));
+    }
+    let mut edges = Vec::new();
+    for (n, b) in blocks.iter().enumerate() {
+        let Some(last) = b.instructions.last() else { continue };
+        let m = last.mnemonic.to_ascii_lowercase();
+        let next = blocks.get(n + 1).map(|x| x.start);
+        let t = targets.get(&last.address).copied();
+        if ret(&m) {
+            edges.push(FlowEdge {
+                from: b.start,
+                to: None,
+                kind: FlowKind::Return,
+                confidence: Confidence::Confirmed,
+            });
+        } else if cond(&m) {
+            edges.push(FlowEdge {
+                from: b.start,
+                to: t,
+                kind: FlowKind::ConditionalBranch,
+                confidence: Confidence::Heuristic,
+            });
+            if let Some(to) = next {
+                edges.push(FlowEdge {
+                    from: b.start,
+                    to: Some(to),
+                    kind: FlowKind::Fallthrough,
+                    confidence: Confidence::Confirmed,
+                });
+            }
+        } else if jump(&m) {
+            edges.push(FlowEdge {
+                from: b.start,
+                to: t,
+                kind: FlowKind::Branch,
+                confidence: Confidence::Heuristic,
+            });
+        } else {
+            if let Some(to) = next {
+                edges.push(FlowEdge {
+                    from: b.start,
+                    to: Some(to),
+                    kind: FlowKind::Fallthrough,
+                    confidence: Confidence::Confirmed,
+                });
+            }
+            if call(&m) {
+                if let Some(to) = t {
+                    edges.push(FlowEdge {
+                        from: b.start,
+                        to: Some(to),
+                        kind: FlowKind::Call,
+                        confidence: Confidence::Heuristic,
+                    });
+                }
+            }
+        }
+    }
+    ControlFlowGraph {
+        function: f,
+        blocks,
+        edges,
+    }
+}
+fn mk(v: Vec<Instruction>) -> BasicBlock {
+    let s = v.first().map(|x| x.address).unwrap_or(0);
+    let e = v.last().map(|x| x.address.saturating_add(x.length as u64)).unwrap_or(s);
+    BasicBlock {
+        start: s,
+        end: e,
+        instructions: v,
+    }
+}
+fn hex(s: &str) -> Option<u64> {
+    let b = s.as_bytes();
+    for n in 0..b.len().saturating_sub(2) {
+        if b[n] == b'0' && matches!(b[n + 1], b'x' | b'X') {
+            let mut e = n + 2;
+            while e < b.len() && b[e].is_ascii_hexdigit() {
+                e += 1;
+            }
+            if let Ok(v) = u64::from_str_radix(&s[n + 2..e], 16) {
+                return Some(v);
+            }
+        }
+    }
+    None
+}
+fn ret(m: &str) -> bool {
+    m.starts_with("ret") || m == "bx lr" || m == "jr ra"
+}
+fn call(m: &str) -> bool {
+    m.starts_with("call") || matches!(m, "bl" | "blx" | "jal" | "jalr")
+}
+fn jump(m: &str) -> bool {
+    matches!(m, "jmp" | "jmpq" | "b" | "br" | "jr")
+}
+fn cond(m: &str) -> bool {
+    (m.starts_with('j') && !jump(m))
+        || m.starts_with("b.")
+        || (m.starts_with('b') && m.len() > 1 && !matches!(m, "bl" | "blx" | "br"))
+        || m.starts_with("cbz")
+        || m.starts_with("cbnz")
+        || m.starts_with("tbz")
+        || m.starts_with("tbnz")
+}
+fn term(m: &str) -> bool {
+    ret(m) || call(m) || jump(m) || cond(m)
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn parses_hex() {
+        assert_eq!(hex("r0, 0x1234"), Some(0x1234));
+    }
+}

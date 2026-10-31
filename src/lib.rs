@@ -11,8 +11,8 @@
 )]
 
 pub mod action;
-pub mod analysis;
 pub mod address;
+pub mod analysis;
 pub mod architecture;
 pub mod arena;
 pub mod bitfield;
@@ -32,8 +32,6 @@ pub mod cpool;
 pub mod crc32;
 pub mod database;
 pub mod dex;
-pub mod kotlin;
-pub mod intelligence;
 pub mod double;
 pub mod dynamic;
 pub mod embedded_languages;
@@ -51,9 +49,11 @@ pub mod graph;
 pub mod heritage;
 pub mod ifacedecomp;
 pub mod inject_sleigh;
+pub mod intelligence;
 pub mod interface;
 pub mod istream;
 pub mod jumptable;
+pub mod kotlin;
 pub mod loadimage;
 pub mod loadimage_xml;
 pub mod marshal;
@@ -111,10 +111,18 @@ pub mod varnode;
 pub mod xml;
 pub mod xml_arch;
 
-pub use analysis::{AnalysisEngine, AnalysisEvent, AnalysisOptions, AnalysisReport, AnalysisSelection, FunctionAnalysis};
-pub use intelligence::{BasicBlock, BinaryIntelligence, Confidence, ControlFlowGraph, CrossReference, DataFlowSummary, FlowEdge, FlowKind, FunctionFingerprint, FunctionPrototype, IntelligenceReport, ReferenceKind, SimilarFunction, TypeEvidence};
+pub use analysis::{
+    AnalysisEngine, AnalysisEvent, AnalysisOptions, AnalysisReport, AnalysisSelection, FunctionAnalysis,
+};
 pub use error::{Error, Result};
-pub use program::{CallEdge, DataEntry, FunctionEntry, FunctionSource, Instruction, InstructionPcode, PcodeOperation, PcodeVarnode, Program, StringEntry, SymbolLoading};
+pub use intelligence::{
+    BasicBlock, BinaryIntelligence, Confidence, ControlFlowGraph, CrossReference, DataFlowSummary, FlowEdge, FlowKind,
+    FunctionFingerprint, FunctionPrototype, IntelligenceReport, ReferenceKind, SimilarFunction, TypeEvidence,
+};
+pub use program::{
+    CallEdge, DataEntry, FunctionEntry, FunctionSource, Instruction, InstructionPcode, PcodeOperation, PcodeVarnode,
+    Program, StringEntry, SymbolLoading,
+};
 
 pub use dex::{Apk, DexClass, DexFile, DexMethod};
 pub use kotlin::{KotlinBuiltins, KotlinDeclaration, KotlinDeclarationKind};

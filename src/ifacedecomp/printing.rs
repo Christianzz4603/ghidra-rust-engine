@@ -131,16 +131,13 @@ pub fn ifc_decompile(args: &mut IStream, status: &mut IfaceStatus) -> IfaceResul
         return Err(IfaceError::Parse("Usage: decompile <function>".to_string()));
     }
 
-                                                                                         
     if !requested_name.is_empty() {
         let dcp = decomp_data(status);
         let glb = conf_mut(dcp, "No image loaded")?;
         let delim = glb.get_scope_delimiter();
         let mut basename = String::new();
         let symboltab = symbol_table(glb)?;
-        let Some(scope) = symboltab.resolve_scope_from_symbol_name(
-            &requested_name, &delim, &mut basename, None
-        ) else {
+        let Some(scope) = symboltab.resolve_scope_from_symbol_name(&requested_name, &delim, &mut basename, None) else {
             return Err(IfaceError::Execution(format!("Unknown function: {requested_name}")));
         };
         let Some(sym) = symboltab.scope_query_function_by_name(scope, &basename) else {
@@ -178,14 +175,18 @@ pub fn ifc_decompile(args: &mut IStream, status: &mut IfaceStatus) -> IfaceResul
         let ((), text) = with_printer(glb, Some(fd), |printer, ctx| printer.doc_function(ctx))?;
         let safe_name: String = name
             .chars()
-            .map(|ch| if ch.is_ascii_alphanumeric() || ch == '_' || ch == '-' { ch } else { '_' })
+            .map(|ch| {
+                if ch.is_ascii_alphanumeric() || ch == '_' || ch == '-' {
+                    ch
+                } else {
+                    '_'
+                }
+            })
             .collect();
         let safe_name = if safe_name.is_empty() { "function" } else { &safe_name };
-        let output_dir = std::env::var("GHIDRA_DECOMPILER_OUTPUT_DIR")
-            .unwrap_or_else(|_| "/sdcard/home".to_string());
-        std::fs::create_dir_all(&output_dir).map_err(|err| {
-            IfaceError::Execution(format!("Cannot create output folder {output_dir}: {err}"))
-        })?;
+        let output_dir = std::env::var("GHIDRA_DECOMPILER_OUTPUT_DIR").unwrap_or_else(|_| "/sdcard/home".to_string());
+        std::fs::create_dir_all(&output_dir)
+            .map_err(|err| IfaceError::Execution(format!("Cannot create output folder {output_dir}: {err}")))?;
         let output_path = std::path::Path::new(&output_dir).join(format!("{safe_name}.c"));
         std::fs::write(&output_path, &text).map_err(|err| {
             IfaceError::Execution(format!("Cannot save decompiled file {}: {err}", output_path.display()))
@@ -591,14 +592,13 @@ pub fn ifc_produce_c(args: &mut IStream, status: &mut IfaceStatus) -> IfaceResul
     result
 }
 
-                                                                                      
 pub fn ifc_analyze_all(args: &mut IStream, status: &mut IfaceStatus) -> IfaceResult<()> {
     let optr = status.optr.clone();
     let mut output_dir = String::new();
     args.ws().read_word_into(&mut output_dir);
     if output_dir.is_empty() {
-        output_dir = std::env::var("GHIDRA_DECOMPILER_OUTPUT_DIR")
-            .unwrap_or_else(|_| "/sdcard/home/analysis".to_string());
+        output_dir =
+            std::env::var("GHIDRA_DECOMPILER_OUTPUT_DIR").unwrap_or_else(|_| "/sdcard/home/analysis".to_string());
     }
     let directory = std::path::Path::new(&output_dir);
     std::fs::create_dir_all(directory).map_err(|err| {
@@ -607,7 +607,11 @@ pub fn ifc_analyze_all(args: &mut IStream, status: &mut IfaceStatus) -> IfaceRes
     let filename = {
         let dcp = decomp_data(status);
         let glb = conf_mut(dcp, "No architecture loaded")?;
-        glb.loader.as_ref().ok_or_else(|| IfaceError::Execution("No load image present".to_string()))?.get_file_name().to_string()
+        glb.loader
+            .as_ref()
+            .ok_or_else(|| IfaceError::Execution("No load image present".to_string()))?
+            .get_file_name()
+            .to_string()
     };
     let binary_name = std::path::Path::new(&filename)
         .file_name()
@@ -617,45 +621,98 @@ pub fn ifc_analyze_all(args: &mut IStream, status: &mut IfaceStatus) -> IfaceRes
     let c_path = directory.join(format!("{binary_name}.c"));
     let asm_path = directory.join(format!("{binary_name}.asm"));
     let csv_path = directory.join(format!("{binary_name}.csv"));
-    let mut c_file = std::fs::File::create(&c_path).map_err(|err| IfaceError::Execution(format!("Cannot create {}: {err}", c_path.display())))?;
-    let mut asm_file = std::fs::File::create(&asm_path).map_err(|err| IfaceError::Execution(format!("Cannot create {}: {err}", asm_path.display())))?;
-    let mut csv_file = std::fs::File::create(&csv_path).map_err(|err| IfaceError::Execution(format!("Cannot create {}: {err}", csv_path.display())))?;
+    let mut c_file = std::fs::File::create(&c_path)
+        .map_err(|err| IfaceError::Execution(format!("Cannot create {}: {err}", c_path.display())))?;
+    let mut asm_file = std::fs::File::create(&asm_path)
+        .map_err(|err| IfaceError::Execution(format!("Cannot create {}: {err}", asm_path.display())))?;
+    let mut csv_file = std::fs::File::create(&csv_path)
+        .map_err(|err| IfaceError::Execution(format!("Cannot create {}: {err}", csv_path.display())))?;
 
     out_write(&optr, &format!("Loading program metadata for {filename}...\n"));
     let mut program = Program::open(std::path::Path::new(&filename), None)
         .map_err(|err| IfaceError::Execution(format!("Cannot open program for discovery: {}", err.explain())))?;
-    out_write(&optr, "Discovering functions from entry point, symbols, and reachable code...\n");
-    program.discover_functions().map_err(|err| IfaceError::Execution(format!("Function discovery failed: {}", err.explain())))?;
-    let functions = program.functions().map_err(|err| IfaceError::Execution(format!("Cannot list functions: {}", err.explain())))?;
-    let data = program.data_symbols().map_err(|err| IfaceError::Execution(format!("Cannot list data symbols: {}", err.explain())))?;
-    let strings = program.strings().map_err(|err| IfaceError::Execution(format!("Cannot extract strings: {}", err.explain())))?;
-    let calls = program.call_graph().map_err(|err| IfaceError::Execution(format!("Cannot build call graph: {}", err.explain())))?;
+    out_write(
+        &optr,
+        "Discovering functions from entry point, symbols, and reachable code...\n",
+    );
+    program
+        .discover_functions()
+        .map_err(|err| IfaceError::Execution(format!("Function discovery failed: {}", err.explain())))?;
+    let functions = program
+        .functions()
+        .map_err(|err| IfaceError::Execution(format!("Cannot list functions: {}", err.explain())))?;
+    let data = program
+        .data_symbols()
+        .map_err(|err| IfaceError::Execution(format!("Cannot list data symbols: {}", err.explain())))?;
+    let strings = program
+        .strings()
+        .map_err(|err| IfaceError::Execution(format!("Cannot extract strings: {}", err.explain())))?;
+    let calls = program
+        .call_graph()
+        .map_err(|err| IfaceError::Execution(format!("Cannot build call graph: {}", err.explain())))?;
 
     let csv = |value: &str| format!("\"{}\"", value.replace('\"', "\"\""));
     use std::io::Write as _;
-    csv_file.write_all(b"type,name,address,size,details\n").map_err(|err| IfaceError::Execution(err.to_string()))?;
-    let names: std::collections::BTreeMap<u64, String> = functions.iter().map(|f| (f.address, f.name.clone())).collect();
+    csv_file
+        .write_all(b"type,name,address,size,details\n")
+        .map_err(|err| IfaceError::Execution(err.to_string()))?;
+    let names: std::collections::BTreeMap<u64, String> =
+        functions.iter().map(|f| (f.address, f.name.clone())).collect();
     for function in &functions {
-        writeln!(csv_file, "function,{},{:#x},,source={:?};symbol={}", csv(&function.name), function.address, function.source, csv(function.symbol.as_deref().unwrap_or("")))
-            .map_err(|err| IfaceError::Execution(err.to_string()))?;
+        writeln!(
+            csv_file,
+            "function,{},{:#x},,source={:?};symbol={}",
+            csv(&function.name),
+            function.address,
+            function.source,
+            csv(function.symbol.as_deref().unwrap_or(""))
+        )
+        .map_err(|err| IfaceError::Execution(err.to_string()))?;
     }
     for item in &data {
-        writeln!(csv_file, "data,{},{:#x},{},symbol={}", csv(&item.name), item.address, item.size, csv(item.symbol.as_deref().unwrap_or("")))
-            .map_err(|err| IfaceError::Execution(err.to_string()))?;
+        writeln!(
+            csv_file,
+            "data,{},{:#x},{},symbol={}",
+            csv(&item.name),
+            item.address,
+            item.size,
+            csv(item.symbol.as_deref().unwrap_or(""))
+        )
+        .map_err(|err| IfaceError::Execution(err.to_string()))?;
     }
     for item in &strings {
-        writeln!(csv_file, "string,{},,{},{:#x}", csv(&item.value), item.value.len(), item.address)
-            .map_err(|err| IfaceError::Execution(err.to_string()))?;
+        writeln!(
+            csv_file,
+            "string,{},,{},{:#x}",
+            csv(&item.value),
+            item.value.len(),
+            item.address
+        )
+        .map_err(|err| IfaceError::Execution(err.to_string()))?;
     }
     for edge in &calls {
         let caller = names.get(&edge.caller).map(String::as_str).unwrap_or("unknown");
-        let callee = names.get(&edge.callee).map(String::as_str).unwrap_or("external_or_unknown");
-        writeln!(csv_file, "call,{} -> {},{:#x},,callee_address={:#x};call_site={:#x}", csv(caller), csv(callee), edge.caller, edge.callee, edge.call_site)
-            .map_err(|err| IfaceError::Execution(err.to_string()))?;
+        let callee = names
+            .get(&edge.callee)
+            .map(String::as_str)
+            .unwrap_or("external_or_unknown");
+        writeln!(
+            csv_file,
+            "call,{} -> {},{:#x},,callee_address={:#x};call_site={:#x}",
+            csv(caller),
+            csv(callee),
+            edge.caller,
+            edge.callee,
+            edge.call_site
+        )
+        .map_err(|err| IfaceError::Execution(err.to_string()))?;
     }
 
     if functions.is_empty() {
-        out_write(&optr, "No functions were discovered. The binary may have no usable entry point or function symbols. Data and strings were still exported.\n");
+        out_write(
+            &optr,
+            "No functions were discovered. The binary may have no usable entry point or function symbols. Data and strings were still exported.\n",
+        );
     }
     let mut processed = 0usize;
     let mut skipped = 0usize;
@@ -666,37 +723,69 @@ pub fn ifc_analyze_all(args: &mut IStream, status: &mut IfaceStatus) -> IfaceRes
         let address = function.address;
         let size = match program.function_size(address) {
             Ok(size) if size > 0 => size,
-            Ok(_) => { skipped += 1; continue; }
-            Err(err) => { skipped += 1; out_write(&optr, &format!("Skipping {name}: {}\n", err.explain())); continue; }
+            Ok(_) => {
+                skipped += 1;
+                continue;
+            }
+            Err(err) => {
+                skipped += 1;
+                out_write(&optr, &format!("Skipping {name}: {}\n", err.explain()));
+                continue;
+            }
         };
         match program.disassemble_range(address, size) {
             Ok(instructions) => {
-                writeln!(asm_file, "\n; {name} @ {address:#x}").map_err(|err| IfaceError::Execution(err.to_string()))?;
+                writeln!(asm_file, "\n; {name} @ {address:#x}")
+                    .map_err(|err| IfaceError::Execution(err.to_string()))?;
                 for instruction in instructions {
-                    let bytes = instruction.bytes.iter().map(|byte| format!("{byte:02x}")).collect::<Vec<_>>().join(" ");
-                    writeln!(asm_file, "{:#010x}: {:<24} {} {}", instruction.address, bytes, instruction.mnemonic, instruction.operands)
-                        .map_err(|err| IfaceError::Execution(err.to_string()))?;
+                    let bytes = instruction
+                        .bytes
+                        .iter()
+                        .map(|byte| format!("{byte:02x}"))
+                        .collect::<Vec<_>>()
+                        .join(" ");
+                    writeln!(
+                        asm_file,
+                        "{:#010x}: {:<24} {} {}",
+                        instruction.address, bytes, instruction.mnemonic, instruction.operands
+                    )
+                    .map_err(|err| IfaceError::Execution(err.to_string()))?;
                 }
             }
-            Err(err) => { skipped += 1; out_write(&optr, &format!("Assembly skipped for {name}: {}\n", err.explain())); }
+            Err(err) => {
+                skipped += 1;
+                out_write(&optr, &format!("Assembly skipped for {name}: {}\n", err.explain()));
+            }
         }
         match program.decompile(address) {
             Ok(text) => {
-                writeln!(c_file, "\n/* {name} @ {address:#x} */").and_then(|_| c_file.write_all(text.as_bytes()))
+                writeln!(c_file, "\n/* {name} @ {address:#x} */")
+                    .and_then(|_| c_file.write_all(text.as_bytes()))
                     .map_err(|err| IfaceError::Execution(err.to_string()))?;
                 processed += 1;
             }
-            Err(err) => { skipped += 1; out_write(&optr, &format!("Decompilation skipped for {name}: {}\n", err.explain())); }
+            Err(err) => {
+                skipped += 1;
+                out_write(&optr, &format!("Decompilation skipped for {name}: {}\n", err.explain()));
+            }
         }
-        if processed % 25 == 0 && processed > 0 { out_write(&optr, &format!("Progress: {processed}/{total} functions processed\n")); }
+        if processed % 25 == 0 && processed > 0 {
+            out_write(&optr, &format!("Progress: {processed}/{total} functions processed\n"));
+        }
     }
     c_file.flush().map_err(|err| IfaceError::Execution(err.to_string()))?;
     asm_file.flush().map_err(|err| IfaceError::Execution(err.to_string()))?;
     csv_file.flush().map_err(|err| IfaceError::Execution(err.to_string()))?;
-    out_write(&optr, &format!(
-        "\nAnalysis finished: {processed}/{total} functions decompiled; {skipped} operation(s) skipped.\nData symbols: {} | Strings: {} | Call edges: {}\nOutput folder: {}\nFiles: {binary_name}.c, {binary_name}.asm, {binary_name}.csv\n",
-        data.len(), strings.len(), calls.len(), directory.display()
-    ));
+    out_write(
+        &optr,
+        &format!(
+            "\nAnalysis finished: {processed}/{total} functions decompiled; {skipped} operation(s) skipped.\nData symbols: {} | Strings: {} | Call edges: {}\nOutput folder: {}\nFiles: {binary_name}.c, {binary_name}.asm, {binary_name}.csv\n",
+            data.len(),
+            strings.len(),
+            calls.len(),
+            directory.display()
+        ),
+    );
     Ok(())
 }
 

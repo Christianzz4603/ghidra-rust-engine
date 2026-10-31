@@ -455,37 +455,59 @@ impl Program {
         None
     }
 
-    pub fn entry_point(&self) -> Option<u64> { self.entry }
+    pub fn entry_point(&self) -> Option<u64> {
+        self.entry
+    }
 
     pub fn find_function_by_name(&self, name: &str) -> Result<Option<FunctionEntry>> {
         Ok(self.functions()?.into_iter().find(|function| function.name == name))
     }
 
     pub fn find_function_at(&self, address: u64) -> Result<Option<FunctionEntry>> {
-        Ok(self.functions()?.into_iter().find(|function| function.address == address))
+        Ok(self
+            .functions()?
+            .into_iter()
+            .find(|function| function.address == address))
     }
 
     pub fn ensure_function_at(&mut self, address: u64, name: Option<&str>) -> Result<FunctionEntry> {
         self.function_at(address)?;
-        if let Some(name) = name.filter(|name| !name.is_empty()) { self.set_function_name(address, name)?; }
-        self.find_function_at(address)?.ok_or_else(|| Error::Lowlevel(format!("function at {address:#x} was not registered")))
+        if let Some(name) = name.filter(|name| !name.is_empty()) {
+            self.set_function_name(address, name)?;
+        }
+        self.find_function_at(address)?
+            .ok_or_else(|| Error::Lowlevel(format!("function at {address:#x} was not registered")))
     }
 
     pub fn read_memory(&self, address: u64, length: u64) -> Result<Vec<u8>> {
-        let length = usize::try_from(length).map_err(|_| Error::Lowlevel("requested memory range is too large".to_string()))?;
-        let loader = self.architecture.loader.as_ref().ok_or_else(|| Error::Lowlevel("missing load image".to_string()))?;
+        let length =
+            usize::try_from(length).map_err(|_| Error::Lowlevel("requested memory range is too large".to_string()))?;
+        let loader = self
+            .architecture
+            .loader
+            .as_ref()
+            .ok_or_else(|| Error::Lowlevel("missing load image".to_string()))?;
         let mut bytes = Vec::new();
-        bytes.try_reserve_exact(length).map_err(|error| Error::Lowlevel(format!("unable to allocate memory buffer: {error}")))?;
+        bytes
+            .try_reserve_exact(length)
+            .map_err(|error| Error::Lowlevel(format!("unable to allocate memory buffer: {error}")))?;
         bytes.resize(length, 0);
         loader.load_fill(&mut bytes, &self.data_address(address)?)?;
         Ok(bytes)
     }
 
     pub fn read_code(&self, address: u64, length: u64) -> Result<Vec<u8>> {
-        let length = usize::try_from(length).map_err(|_| Error::Lowlevel("requested code range is too large".to_string()))?;
-        let loader = self.architecture.loader.as_ref().ok_or_else(|| Error::Lowlevel("missing load image".to_string()))?;
+        let length =
+            usize::try_from(length).map_err(|_| Error::Lowlevel("requested code range is too large".to_string()))?;
+        let loader = self
+            .architecture
+            .loader
+            .as_ref()
+            .ok_or_else(|| Error::Lowlevel("missing load image".to_string()))?;
         let mut bytes = Vec::new();
-        bytes.try_reserve_exact(length).map_err(|error| Error::Lowlevel(format!("unable to allocate code buffer: {error}")))?;
+        bytes
+            .try_reserve_exact(length)
+            .map_err(|error| Error::Lowlevel(format!("unable to allocate code buffer: {error}")))?;
         bytes.resize(length, 0);
         loader.load_fill(&mut bytes, &self.code_address(address)?)?;
         Ok(bytes)
@@ -496,7 +518,9 @@ impl Program {
         Ok(pcode_varnode(&register))
     }
 
-    pub fn set_print_language(&mut self, name: &str) -> Result<()> { self.architecture.set_print_language(name) }
+    pub fn set_print_language(&mut self, name: &str) -> Result<()> {
+        self.architecture.set_print_language(name)
+    }
 
     pub fn data_symbols(&self) -> Result<Vec<DataEntry>> {
         Ok(self
@@ -511,12 +535,12 @@ impl Program {
             .collect())
     }
 
-                                                                                   
-                                                                                   
-                                       
     pub fn strings(&self) -> Result<Vec<StringEntry>> {
         const CHUNK_SIZE: usize = 64 * 1024;
-        let loader = self.architecture.loader.as_ref()
+        let loader = self
+            .architecture
+            .loader
+            .as_ref()
             .ok_or_else(|| Error::Lowlevel("missing load image".to_string()))?;
         let mut result = Vec::new();
         for section in &self.string_sections {
@@ -532,8 +556,14 @@ impl Program {
                     if byte == 0 {
                         if pending.len() >= MIN_STRING_LENGTH {
                             if let Ok(value) = std::str::from_utf8(&pending) {
-                                if value.chars().all(|character| !character.is_control() || matches!(character, '\t' | '\n' | '\r')) {
-                                    result.push(StringEntry { address: pending_address, value: value.to_string() });
+                                if value
+                                    .chars()
+                                    .all(|character| !character.is_control() || matches!(character, '\t' | '\n' | '\r'))
+                                {
+                                    result.push(StringEntry {
+                                        address: pending_address,
+                                        value: value.to_string(),
+                                    });
                                 }
                             }
                         }
@@ -827,7 +857,6 @@ impl Program {
         Ok(instructions)
     }
 
-                                                                       
     pub fn function_size(&mut self, address: u64) -> Result<u64> {
         let addr = self.code_address(address)?;
         let scope = self.global_scope()?;
@@ -839,7 +868,6 @@ impl Program {
             .with_function(sym, |function, _architecture| Ok(function.get_size().max(0) as u64))
     }
 
-                                                                                  
     pub fn disassemble_range(&self, address: u64, byte_length: u64) -> Result<Vec<Instruction>> {
         panic_guard(|| {
             let translate = self.architecture.translator()?;
@@ -853,7 +881,10 @@ impl Program {
                 };
                 let length = translate.print_assembly(&mut text, &current)?;
                 if length <= 0 {
-                    return Err(Error::Lowlevel(format!("invalid instruction length at {:#x}", current.get_offset())));
+                    return Err(Error::Lowlevel(format!(
+                        "invalid instruction length at {:#x}",
+                        current.get_offset()
+                    )));
                 }
                 let mut bytes = vec![0u8; length as usize];
                 if let Some(loader) = &self.architecture.loader {
@@ -890,7 +921,10 @@ impl Program {
                 };
                 let length = translate.one_instruction(&mut collector, &current)?;
                 if length <= 0 {
-                    return Err(Error::Lowlevel(format!("invalid instruction length at {:#x}", current.get_offset())));
+                    return Err(Error::Lowlevel(format!(
+                        "invalid instruction length at {:#x}",
+                        current.get_offset()
+                    )));
                 }
                 instructions.push(InstructionPcode {
                     address: current.get_offset(),

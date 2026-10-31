@@ -1,27 +1,20 @@
-                                             
-   
-                                                                                  
-                                                                                 
-
 use std::path::Path;
 
 use crate::error::{Error, Result};
 use crate::program::{CallEdge, DataEntry, FunctionEntry, Instruction, Program, StringEntry, SymbolLoading};
 
-                                                                          
 #[derive(Clone, Debug)]
 pub struct AnalysisOptions {
-                                                                              
     pub discover_functions: bool,
-                                                                 
+
     pub disassemble: bool,
-                                                               
+
     pub decompile: bool,
-                                                                        
+
     pub extract_strings: bool,
-                                               
+
     pub collect_data_symbols: bool,
-                                      
+
     pub build_call_graph: bool,
 }
 
@@ -39,12 +32,6 @@ impl Default for AnalysisOptions {
 }
 
 impl AnalysisOptions {
-                                                                                   
-       
-                                                                                
-                                                                                
-                                                                               
-                                                                                
     pub fn low_memory() -> Self {
         Self {
             discover_functions: true,
@@ -67,27 +54,33 @@ pub struct AnalysisSelection {
 
 impl AnalysisSelection {
     pub fn with_function_addresses(mut self, addresses: impl IntoIterator<Item = u64>) -> Self {
-        self.function_addresses = Some(addresses.into_iter().collect()); self
+        self.function_addresses = Some(addresses.into_iter().collect());
+        self
     }
 
     pub fn with_address_range(mut self, start: u64, end: u64) -> Self {
-        self.start_address = Some(start); self.end_address = Some(end); self
+        self.start_address = Some(start);
+        self.end_address = Some(end);
+        self
     }
 
-    pub fn with_max_functions(mut self, maximum: usize) -> Self { self.max_functions = Some(maximum); self }
+    pub fn with_max_functions(mut self, maximum: usize) -> Self {
+        self.max_functions = Some(maximum);
+        self
+    }
 
     pub fn validate(&self) -> Result<()> {
         if let (Some(start), Some(end)) = (self.start_address, self.end_address) {
             if start >= end {
-                return Err(Error::Lowlevel(format!("invalid analysis range: start {start:#x} must be below end {end:#x}")));
+                return Err(Error::Lowlevel(format!(
+                    "invalid analysis range: start {start:#x} must be below end {end:#x}"
+                )));
             }
         }
         Ok(())
     }
 }
 
-                                                                                
-                                        
 #[derive(Clone, Debug)]
 pub struct FunctionAnalysis {
     pub function: FunctionEntry,
@@ -97,17 +90,30 @@ pub struct FunctionAnalysis {
     pub errors: Vec<String>,
 }
 
-                                                                
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum AnalysisEvent {
-    Started { total_functions: usize },
-    FunctionStarted { index: usize, total: usize, address: u64, name: String },
-    FunctionCompleted { index: usize, total: usize, result: FunctionAnalysis },
-    Finished { analyzed: usize, with_errors: usize, total: usize },
+    Started {
+        total_functions: usize,
+    },
+    FunctionStarted {
+        index: usize,
+        total: usize,
+        address: u64,
+        name: String,
+    },
+    FunctionCompleted {
+        index: usize,
+        total: usize,
+        result: FunctionAnalysis,
+    },
+    Finished {
+        analyzed: usize,
+        with_errors: usize,
+        total: usize,
+    },
 }
 
-                                                            
 #[derive(Clone, Debug)]
 pub struct AnalysisReport {
     pub functions: Vec<FunctionEntry>,
@@ -118,48 +124,49 @@ pub struct AnalysisReport {
     pub functions_with_errors: usize,
 }
 
-                                                                                     
-   
-                                                                                  
-                                                                                 
 pub struct AnalysisEngine {
     program: Program,
 }
 
 impl AnalysisEngine {
-                                                                
     pub fn open(path: &Path, language: Option<&str>) -> Result<Self> {
-        Ok(Self { program: Program::open(path, language)? })
+        Ok(Self {
+            program: Program::open(path, language)?,
+        })
     }
 
-                                                               
     pub fn from_image(name: &str, bytes: Vec<u8>, language: Option<&str>) -> Result<Self> {
-        Ok(Self { program: Program::from_image(name, bytes, language)? })
+        Ok(Self {
+            program: Program::from_image(name, bytes, language)?,
+        })
     }
 
     pub fn open_with(path: &Path, language: Option<&str>, loading: SymbolLoading) -> Result<Self> {
-        Ok(Self { program: Program::open_with(path, language, loading)? })
+        Ok(Self {
+            program: Program::open_with(path, language, loading)?,
+        })
     }
 
     pub fn from_image_with(name: &str, bytes: Vec<u8>, language: Option<&str>, loading: SymbolLoading) -> Result<Self> {
-        Ok(Self { program: Program::from_image_with(name, bytes, language, loading)? })
+        Ok(Self {
+            program: Program::from_image_with(name, bytes, language, loading)?,
+        })
     }
 
     pub fn from_raw_bytes(bytes: Vec<u8>, language: &str, base_address: u64) -> Result<Self> {
-        Ok(Self { program: Program::from_raw_bytes(bytes, language, base_address)? })
+        Ok(Self {
+            program: Program::from_raw_bytes(bytes, language, base_address)?,
+        })
     }
 
-                                               
     pub fn from_program(program: Program) -> Self {
         Self { program }
     }
 
-                                                                                  
     pub fn program(&self) -> &Program {
         &self.program
     }
 
-                                                                                          
     pub fn program_mut(&mut self) -> &mut Program {
         &mut self.program
     }
@@ -170,16 +177,13 @@ impl AnalysisEngine {
     }
 
     pub fn analyze_function_by_name(&mut self, name: &str, options: &AnalysisOptions) -> Result<FunctionAnalysis> {
-        let function = self.program.find_function_by_name(name)?
+        let function = self
+            .program
+            .find_function_by_name(name)?
             .ok_or_else(|| Error::Lowlevel(format!("function not found: {name}")))?;
         Ok(analyze_one(&mut self.program, &function, options))
     }
 
-                                                                              
-       
-                                                                                   
-                                                                                   
-                                                                                   
     pub fn analyze(
         &mut self,
         options: &AnalysisOptions,
@@ -200,10 +204,18 @@ impl AnalysisEngine {
         }
 
         let mut functions = self.program.functions()?;
-        if let Some(addresses) = &selection.function_addresses { functions.retain(|function| addresses.contains(&function.address)); }
-        if let Some(start) = selection.start_address { functions.retain(|function| function.address >= start); }
-        if let Some(end) = selection.end_address { functions.retain(|function| function.address < end); }
-        if let Some(maximum) = selection.max_functions { functions.truncate(maximum); }
+        if let Some(addresses) = &selection.function_addresses {
+            functions.retain(|function| addresses.contains(&function.address));
+        }
+        if let Some(start) = selection.start_address {
+            functions.retain(|function| function.address >= start);
+        }
+        if let Some(end) = selection.end_address {
+            functions.retain(|function| function.address < end);
+        }
+        if let Some(maximum) = selection.max_functions {
+            functions.truncate(maximum);
+        }
         let data_symbols = if options.collect_data_symbols {
             self.program.data_symbols()?
         } else {
@@ -243,7 +255,11 @@ impl AnalysisEngine {
             on_event(AnalysisEvent::FunctionCompleted { index, total, result });
         }
 
-        on_event(AnalysisEvent::Finished { analyzed, with_errors, total });
+        on_event(AnalysisEvent::Finished {
+            analyzed,
+            with_errors,
+            total,
+        });
         Ok(AnalysisReport {
             functions,
             data_symbols,
@@ -256,7 +272,13 @@ impl AnalysisEngine {
 }
 
 fn analyze_one(program: &mut Program, function: &FunctionEntry, options: &AnalysisOptions) -> FunctionAnalysis {
-    let mut result = FunctionAnalysis { function: function.clone(), size: None, instructions: Vec::new(), pseudocode: None, errors: Vec::new() };
+    let mut result = FunctionAnalysis {
+        function: function.clone(),
+        size: None,
+        instructions: Vec::new(),
+        pseudocode: None,
+        errors: Vec::new(),
+    };
     if options.disassemble {
         match program.function_size(function.address) {
             Ok(size) if size > 0 => {
@@ -310,7 +332,12 @@ mod tests {
     fn invalid_address_range_is_rejected() {
         let selection = super::AnalysisSelection::default().with_address_range(0x300, 0x100);
         assert!(selection.validate().is_err());
-        assert!(super::AnalysisSelection::default().with_address_range(0x100, 0x300).validate().is_ok());
+        assert!(
+            super::AnalysisSelection::default()
+                .with_address_range(0x100, 0x300)
+                .validate()
+                .is_ok()
+        );
     }
 
     #[test]
