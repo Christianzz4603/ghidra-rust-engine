@@ -122,7 +122,9 @@ jobs:
         run: |
           NDK="$ANDROID_HOME/ndk/27.2.12479018"
           TOOLCHAIN="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin"
-          echo "CARGO_TARGET_$(echo '${{ matrix.target }}' | tr '[:lower:]-' '[:upper:]_')_LINKER=$TOOLCHAIN/${{ matrix.linker }}" >> "$GITHUB_ENV"
+          LINKER_VAR="CARGO_TARGET_$(echo '${{ matrix.target }}' | tr '[:lower:]-' '[:upper:]_')_LINKER"
+          echo "$LINKER_VAR=$TOOLCHAIN/${{ matrix.linker }}" >> "$GITHUB_ENV"
+          export "$LINKER_VAR=$TOOLCHAIN/${{ matrix.linker }}"
           cargo build --release --lib --target "${{ matrix.target }}" --no-default-features --features all-processors
           cargo build --release --example decomp --target "${{ matrix.target }}" --no-default-features --features all-processors
       - name: Package Android release files
