@@ -85,25 +85,6 @@ fn fetch_latest_tag() -> Option<String> {
     Some(tag)
 }
 
-fn show_update_notice() {
-    let Some(latest) = fetch_latest_tag() else {
-        return;
-    };
-    let Some(current_version) = version_parts(version()) else {
-        return;
-    };
-    let Some(latest_version) = version_parts(&latest) else {
-        return;
-    };
-    if latest_version > current_version {
-        println!();
-        println!("Update available: {} -> {}", version(), latest.trim_start_matches('v'));
-        println!("Download: {RELEASES_URL}");
-        println!("Run `ghidra-engine update` for update instructions.");
-        println!();
-    }
-}
-
 fn setup() -> Result<(), String> {
     let home = home_dir().ok_or("Could not determine the home directory")?;
     let config = home.join(".config").join("ghidra-engine");
@@ -146,6 +127,16 @@ fn print_update_status() {
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().collect();
+    if args.get(1).is_some_and(|arg| arg == "--help" || arg == "-h" || arg == "help") {
+        println!("Ghidra Rust Engine {}", version());
+        println!("Usage: ghidra-rust_cli [--version | --help | setup | update]");
+        println!();
+        println!("Run without arguments to open the interactive decompiler console.");
+        println!("Inside the console: open <binary>, then decompile <function>.");
+        println!("Decompiled files are saved in an output/ folder beside this executable by default.");
+        println!("Set GHIDRA_DECOMPILER_OUTPUT_DIR to choose another output folder.");
+        return ExitCode::SUCCESS;
+    }
     if args.get(1).is_some_and(|arg| arg == "--version" || arg == "-V" || arg == "version") {
         println!("ghidra-engine {}", version());
         return ExitCode::SUCCESS;
@@ -164,7 +155,6 @@ fn main() -> ExitCode {
         return ExitCode::SUCCESS;
     }
 
-    show_update_notice();
 
     let mut initscript: Option<String> = None;
     let mut extrapaths: Vec<String> = Vec::new();

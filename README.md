@@ -18,41 +18,33 @@ decompile add
 - `open <file>` loads an ELF, PE, or Mach-O binary. It is a shorter alias for `load file <file>`.
 - `select <function>` selects a function. It is a shorter alias for `load function <function>`.
 - `decompile <function>` selects and decompiles that function in one step.
-- A successful decompilation automatically saves readable C pseudocode to `/sdcard/home/<function>.c` on Android. The folder is created automatically.
+- A successful decompilation automatically saves readable C pseudocode to the executable's `output/` folder. The folder is created automatically.
 - Set `GHIDRA_DECOMPILER_OUTPUT_DIR` before launching the program to choose another output folder.
 - The original Ghidra-style analysis commands remain available, including disassembly, P-code, control-flow, data-flow and graph analysis.
 - Typing a required-argument command by itself prints its syntax, for example `open`, `select`, `decompile`, `save` or `restore`.
 - The console can be launched from any working directory. Processor definitions are embedded in the build, so it does not need to be started from the repository root.
 - Absolute file paths work regardless of the current directory. Relative paths are resolved from the directory where the program was launched.
-- Commands that save files accept either absolute paths or paths relative to the launch directory. Decompiled C output still defaults to `/sdcard/home` on Android.
+- Commands that save files accept either absolute paths or paths relative to the launch directory. Decompiled C output defaults to the executable's `output/` folder, with a home-directory fallback when needed.
 
-## Standalone Termux binary
+## Standalone executable
 
-The Android release archive contains the self-contained `ghidra-rust_cli` executable, the Termux installer, and the optional `ghidra-open` launcher. Processor specifications are embedded in the executable, so the device does **not** need the repository, Rust, Cargo, or a separate SLEIGH/language directory.
+The release archive contains the self-contained `ghidra-rust_cli` executable. Processor specifications are embedded in the binary, so it does **not** need the repository, Rust, Cargo, a SLEIGH directory, an installer, or a separate launcher at runtime.
 
 1. Download the archive matching your device ABI from the GitHub Releases page. For most modern Android phones, choose `Android-arm64-v8a`.
-2. Extract the archive.
-3. In Termux, enter the extracted directory and run:
+2. Extract `ghidra-rust_cli` anywhere you want.
+3. Run it directly from that folder:
 
 ```sh
-sh install-termux.sh
+chmod +x ./ghidra-rust_cli
+./ghidra-rust_cli
 ```
 
-The installer preserves Termux’s existing `open` command and installs a separate `ghidra-open` command. The installer copies the executable into `$PREFIX/bin`; after installation, the extracted archive and source files can be deleted.
+The interactive console starts immediately. Load a library with `open /path/to/library.so`, then use `decompile <function>` to decompile a function. You can also launch it by its absolute path from any working directory.
 
-You can run the engine directly with `ghidra-rust_cli`, or load a file with:
+Decompiled files are saved automatically in an `output/` directory beside the executable. If that location is not writable, the CLI falls back to `~/.local/share/ghidra-engine/output`. Set `GHIDRA_DECOMPILER_OUTPUT_DIR` to override the location. No setup command is required. The optional `setup` command only creates a user workspace; it is not part of normal startup.
 
-```sh
-ghidra-rust_cli
-ghidra-open /sdcard/libtest.so
-```
+The CLI does not check for updates during startup, so running the standalone binary does not require `curl` or an internet connection. Use `ghidra-rust_cli update` when you want to check for a newer release.
 
-To install a locally built executable from the repository, the existing build-and-install workflow still works:
-
-```sh
-cargo build --release --example decomp
-sh scripts/install-termux.sh
-```
 
 ## Reusable analysis engine API
 

@@ -26,6 +26,35 @@ fn no_function(message: &str) -> IfaceError {
     IfaceError::Execution(message.to_string())
 }
 
+fn decompiler_output_dir() -> IfaceResult<std::path::PathBuf> {
+    if let Some(path) = std::env::var_os("GHIDRA_DECOMPILER_OUTPUT_DIR") {
+        let path = std::path::PathBuf::from(path);
+        std::fs::create_dir_all(&path).map_err(|err| {
+            IfaceError::Execution(format!("Cannot create output folder {}: {err}", path.display()))
+        })?;
+        return Ok(path);
+    }
+
+    if let Ok(executable) = std::env::current_exe()
+        && let Some(directory) = executable.parent()
+    {
+        let path = directory.join("output");
+        if std::fs::create_dir_all(&path).is_ok() {
+            return Ok(path);
+        }
+    }
+
+    let home = std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .map(std::path::PathBuf::from)
+        .ok_or_else(|| IfaceError::Execution("Cannot determine a writable output directory".to_string()))?;
+    let path = home.join(".local").join("share").join("ghidra-engine").join("output");
+    std::fs::create_dir_all(&path).map_err(|err| {
+        IfaceError::Execution(format!("Cannot create fallback output folder {}: {err}", path.display()))
+    })?;
+    Ok(path)
+}
+
 pub fn ifc_printdisasm(args: &mut IStream, status: &mut IfaceStatus) -> IfaceResult<()> {
     let fileoptr = status.fileoptr.clone();
     let dcp = decomp_data(status);
@@ -181,12 +210,8 @@ pub fn ifc_decompile(args: &mut IStream, status: &mut IfaceStatus) -> IfaceResul
             .map(|ch| if ch.is_ascii_alphanumeric() || ch == '_' || ch == '-' { ch } else { '_' })
             .collect();
         let safe_name = if safe_name.is_empty() { "function" } else { &safe_name };
-        let output_dir = std::env::var("GHIDRA_DECOMPILER_OUTPUT_DIR")
-            .unwrap_or_else(|_| "/sdcard/home".to_string());
-        std::fs::create_dir_all(&output_dir).map_err(|err| {
-            IfaceError::Execution(format!("Cannot create output folder {output_dir}: {err}"))
-        })?;
-        let output_path = std::path::Path::new(&output_dir).join(format!("{safe_name}.c"));
+        let output_dir = decompiler_output_dir()?;
+        let output_path = output_dir.join(format!("{safe_name}.c"));
         std::fs::write(&output_path, &text).map_err(|err| {
             IfaceError::Execution(format!("Cannot save decompiled file {}: {err}", output_path.display()))
         })?;
