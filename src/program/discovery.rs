@@ -73,9 +73,70 @@ impl Program {
                 seeds.push(address);
             }
         }
+
+        // Stripped ARM64 shared libraries often have few or no function symbols.
+        // Supplement entry-point/call-graph discovery with conservative prologue
+        // scanning across executable sections so otherwise-unreferenced functions
+        // can still be recovered.
+        seeds.extend(self.arm64_prologue_seeds()?);
         seeds.sort_unstable();
         seeds.dedup();
         super::panic_guard(|| self.discover_from(seeds))
+    }
+
+    fn arm64_prologue_seeds(&self) -> Result<Vec<u64>> {
+        let language = self.language_id().to_ascii_uppercase();
+        if !language.contains("AARCH64") && !language.contains("ARM64") {
+            return Ok(Vec::new());
+        }
+
+        const CHUNK_SIZE: u64 = 64 * 1024;
+        const STP_FP_LR_PREINDEX_MASK: u32 = 0xFFC0_7FFF;
+        const STP_FP_LR_PREINDEX: u32 = 0xA980_7BFD;
+        const PACIASP: u32 = 0xD503_233F;
+        const BTI_C: u32 = 0xD503_245F;
+
+        let mut candidates = Vec::new();
+        for section in &self.code_sections {
+            let mut chunk_start = (section.start + 3) & !3;
+            while chunk_start < section.end {
+                let chunk_end = (chunk_start + CHUNK_SIZE + 12).min(section.end);
+                let Ok(bytes) = self.read_code(chunk_start, chunk_end - chunk_start) else {
+                    chunk_start = (chunk_start + CHUNK_SIZE) & !3;
+                    continue;
+                };
+                let words = bytes.len() / 4;
+                for index in 0..words {
+                    let offset = index * 4;
+                    let word = u32::from_le_bytes(bytes[offset..offset + 4].try_into().unwrap());
+                    if word & STP_FP_LR_PREINDEX_MASK == STP_FP_LR_PREINDEX {
+                        candidates.push(chunk_start + offset as u64);
+                        continue;
+                    }
+                    if word != PACIASP && word != BTI_C {
+                        continue;
+                    }
+                    // PAC/BTI may precede the frame setup. Only accept the
+                    // sequence when an FP/LR save follows within three instructions.
+                    let has_frame_setup = (1..=3).any(|lookahead| {
+                        let next = index + lookahead;
+                        if next >= words {
+                            return false;
+                        }
+                        let start = next * 4;
+                        let following = u32::from_le_bytes(
+                            bytes[start..start + 4].try_into().unwrap(),
+                        );
+                        following & STP_FP_LR_PREINDEX_MASK == STP_FP_LR_PREINDEX
+                    });
+                    if has_frame_setup {
+                        candidates.push(chunk_start + offset as u64);
+                    }
+                }
+                chunk_start = (chunk_start + CHUNK_SIZE) & !3;
+            }
+        }
+        Ok(candidates)
     }
 
     fn discover_from(&mut self, seeds: Vec<u64>) -> Result<()> {
