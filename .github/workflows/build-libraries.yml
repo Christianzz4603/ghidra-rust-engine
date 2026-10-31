@@ -136,7 +136,10 @@ jobs:
           cp target/${{ matrix.target }}/release/libghidra_decompiler.a dist/libghidra-rust-engine-Android-${{ matrix.abi }}.a
           cp target/${{ matrix.target }}/release/libghidra_decompiler.rlib dist/libghidra-rust-engine-Android-${{ matrix.abi }}.rlib
           cp target/${{ matrix.target }}/release/examples/decomp package/ghidra-engine
-          tar -czf dist/ghidra-engine-v${{ needs.prepare.outputs.version }}-Android-${{ matrix.abi }}.tar.gz -C package ghidra-engine
+          cp scripts/install-termux.sh package/install-termux.sh
+          cp scripts/termux-open package/termux-open
+          chmod +x package/ghidra-engine package/install-termux.sh package/termux-open
+          tar -czf dist/ghidra-engine-v${{ needs.prepare.outputs.version }}-Android-${{ matrix.abi }}.tar.gz -C package ghidra-engine install-termux.sh termux-open
       - uses: actions/upload-artifact@v4
         with:
           name: release-Android-${{ matrix.abi }}

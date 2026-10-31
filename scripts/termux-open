@@ -2,7 +2,11 @@
 set -eu
 
 PREFIX="${PREFIX:-/data/data/com.termux/files/usr}"
-DECOMPILER="$PREFIX/bin/ghidra-decompiler"
+DECOMPILER="$PREFIX/bin/ghidra-engine"
+
+if [ ! -x "$DECOMPILER" ]; then
+    DECOMPILER="$PREFIX/bin/ghidra-decompiler"
+fi
 
 if [ "$#" -ne 1 ]; then
     printf 'Usage: open <file>\n' >&2
@@ -10,7 +14,7 @@ if [ "$#" -ne 1 ]; then
 fi
 
 if [ ! -x "$DECOMPILER" ]; then
-    printf 'ghidra-decompiler is not installed. Run scripts/install-termux.sh from the repository.\n' >&2
+    printf 'ghidra-engine is not installed. Extract the Android release archive and run install-termux.sh.\n' >&2
     exit 127
 fi
 
@@ -30,6 +34,5 @@ mkdir -p "$TMP_DIR"
 INIT_SCRIPT=$(mktemp "$TMP_DIR/ghidra-open.XXXXXX")
 trap 'rm -f "$INIT_SCRIPT"' EXIT HUP INT TERM
 
-# Use the canonical command so this launcher also works with older installed builds.
 printf 'load file %s\n' "$FILE" > "$INIT_SCRIPT"
 "$DECOMPILER" -i "$INIT_SCRIPT"

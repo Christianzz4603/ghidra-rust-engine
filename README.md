@@ -26,25 +26,33 @@ decompile add
 - Absolute file paths work regardless of the current directory. Relative paths are resolved from the directory where the program was launched.
 - Commands that save files accept either absolute paths or paths relative to the launch directory. Decompiled C output still defaults to `/sdcard/home` on Android.
 
-## Termux shell command (`open`)
+## Standalone Termux binary
 
-To make `open <file>` work directly from the Termux shell, build and install the launcher:
+The Android release archive contains the self-contained `ghidra-engine` executable, the Termux installer, and the optional `open` launcher. Processor specifications are embedded in the executable, so the device does **not** need the repository, Rust, Cargo, or a separate SLEIGH/language directory.
+
+1. Download the archive matching your device ABI from the GitHub Releases page. For most modern Android phones, choose `Android-arm64-v8a`.
+2. Extract the archive.
+3. In Termux, enter the extracted directory and run:
+
+```sh
+sh install-termux.sh
+```
+
+If Termux already has an `open` command, use `sh install-termux.sh --force` to replace it. The installer copies the executable into `$PREFIX/bin`; after installation, the extracted archive and source files can be deleted.
+
+You can run the engine directly with `ghidra-engine`, or load a file with:
+
+```sh
+ghidra-engine
+open /sdcard/libtest.so
+```
+
+To install a locally built executable from the repository, the existing build-and-install workflow still works:
 
 ```sh
 cargo build --release --example decomp
 sh scripts/install-termux.sh
 ```
-
-When updating an existing installation, rebuild and reinstall the copied executable too:
-
-```sh
-cargo build --release --example decomp
-sh scripts/install-termux.sh --force
-```
-
-The shell launcher uses the canonical `load file <file>` command so it remains compatible with older installed binaries. The interactive console also supports `open <file>` after rebuilding.
-
-After installation, `open /sdcard/libtest.so` works from any directory. It loads the binary and then leaves the interactive decompiler console running so you can use `decompile`, `select`, disassembly and the other analysis commands. The installer places the executable and wrapper in `$PREFIX/bin`. It will not overwrite an existing `open` command unless you pass `--force`.
 
 ## Reusable analysis engine API
 
