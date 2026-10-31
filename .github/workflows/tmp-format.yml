@@ -1,0 +1,29 @@
+name: tmp-format
+
+# Temporary helper for the ci-fix branch only: runs rustfmt with the pinned
+# toolchain and commits the result. Pushes made with GITHUB_TOKEN do not start
+# other workflow runs, so this cannot loop. Removed before merging to master.
+on:
+  push:
+    branches: [ci-fix]
+
+permissions:
+  contents: write
+
+jobs:
+  fmt:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup toolchain install
+      - run: cargo fmt --all
+      - name: Commit formatting
+        run: |
+          if git diff --quiet; then
+            echo "already formatted"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "Apply rustfmt"
+          git push
