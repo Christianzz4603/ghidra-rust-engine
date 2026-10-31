@@ -120,8 +120,8 @@ pub use intelligence::{
     FunctionFingerprint, FunctionPrototype, IntelligenceReport, ReferenceKind, SimilarFunction, TypeEvidence,
 };
 pub use program::{
-    CallEdge, CodeScanSummary, CodeSectionSummary, DataEntry, DisassemblyGap, DisassemblyReport, FunctionEntry, FunctionSource, Instruction, InstructionPcode,
-    PcodeOperation, PcodeVarnode, Program, StringEntry, SymbolLoading,
+    CallEdge, CodeScanSummary, CodeSectionSummary, DataEntry, DisassemblyGap, DisassemblyReport, FunctionEntry,
+    FunctionSource, Instruction, InstructionPcode, PcodeOperation, PcodeVarnode, Program, StringEntry, SymbolLoading,
 };
 
 pub use dex::{Apk, DexClass, DexFile, DexMethod};
