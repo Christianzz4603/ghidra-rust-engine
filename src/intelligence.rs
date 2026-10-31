@@ -151,7 +151,7 @@ impl<'a> BinaryIntelligence<'a> {
         let c = self.program.call_graph()?;
         let function_calls: Vec<_> = c.iter().filter(|edge| edge.caller == f.address).collect();
         let mut r = IntelligenceReport {
-            call_edges: c,
+            call_edges: c.clone(),
             ..Default::default()
         };
         self.one(&f, &function_calls, &mut r)?;
