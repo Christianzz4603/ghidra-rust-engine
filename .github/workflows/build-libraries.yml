@@ -13,7 +13,7 @@ on:
     types: [published]
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   linux:
@@ -138,3 +138,30 @@ jobs:
           path: dist/*
           if-no-files-found: error
           retention-days: 30
+
+  publish-release:
+    name: Publish release assets
+    if: github.event_name == 'release' && github.event.action == 'published'
+    needs:
+      - linux
+      - android-arm64
+      - windows
+      - macos
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Download all platform libraries
+        uses: actions/download-artifact@v4
+        with:
+          pattern: ghidra-rust-engine-*
+          path: release-assets
+          merge-multiple: true
+      - name: Generate checksums
+        working-directory: release-assets
+        run: |
+          find . -maxdepth 1 -type f -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS
+      - name: Attach libraries to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.release.tag_name }}
+          files: release-assets/*
+          fail_on_unmatched_files: true
