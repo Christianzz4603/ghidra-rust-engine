@@ -11,6 +11,7 @@ use crate::funcdata::Funcdata;
 use crate::graph::{dump_controlflow_graph, dump_dataflow_graph, dump_dom_graph};
 use crate::interface::{IStream, IfaceError, IfaceResult, IfaceStatus, OutStream, out_write};
 use crate::paramid::ParamIdAnalysis;
+use crate::intelligence::{BinaryIntelligence, Confidence, FlowKind};
 use crate::program::Program;
 use crate::space::SpaceType;
 use crate::types::print_data;
@@ -680,6 +681,78 @@ pub fn ifc_analyze_all(args: &mut IStream, status: &mut IfaceStatus) -> IfaceRes
     let calls = program
         .call_graph()
         .map_err(|err| IfaceError::Execution(format!("Cannot build call graph: {}", err.explain())))?;
+    let intelligence = BinaryIntelligence::new(&mut program)
+        .analyze_all()
+        .map_err(|err| IfaceError::Execution(format!("Intelligence analysis failed: {}", err.explain())))?;
+
+    let xrefs_path = directory.join(format!("{binary_name}.xrefs.csv"));
+    let cfg_path = directory.join(format!("{binary_name}.cfg.csv"));
+    let dataflow_path = directory.join(format!("{binary_name}.dataflow.csv"));
+    let fingerprints_path = directory.join(format!("{binary_name}.fingerprints.csv"));
+
+    let mut xrefs_file = std::fs::File::create(&xrefs_path)
+        .map_err(|err| IfaceError::Execution(format!("Cannot create {}: {err}", xrefs_path.display())))?;
+    let mut cfg_file = std::fs::File::create(&cfg_path)
+        .map_err(|err| IfaceError::Execution(format!("Cannot create {}: {err}", cfg_path.display())))?;
+    let mut dataflow_file = std::fs::File::create(&dataflow_path)
+        .map_err(|err| IfaceError::Execution(format!("Cannot create {}: {err}", dataflow_path.display())))?;
+    let mut fingerprints_file = std::fs::File::create(&fingerprints_path)
+        .map_err(|err| IfaceError::Execution(format!("Cannot create {}: {err}", fingerprints_path.display())))?;
+
+    writeln!(xrefs_file, "from,to,kind,function,confidence")
+        .map_err(|err| IfaceError::Execution(err.to_string()))?;
+    for reference in &intelligence.cross_references {
+        writeln!(xrefs_file, "{:#x},{:#x},{:?},{},{:?}",
+            reference.from, reference.to, reference.kind,
+            reference.function.map(|value| format!("{value:#x}")).unwrap_or_default(),
+            reference.confidence)
+            .map_err(|err| IfaceError::Execution(err.to_string()))?;
+    }
+
+    writeln!(cfg_file, "function,block_start,block_end,instruction_count,edge_from,edge_to,edge_kind,confidence")
+        .map_err(|err| IfaceError::Execution(err.to_string()))?;
+    for graph in &intelligence.control_flow_graphs {
+        for block in &graph.blocks {
+            let edges: Vec<_> = graph.edges.iter().filter(|edge| edge.from == block.start).collect();
+            if edges.is_empty() {
+                writeln!(cfg_file, "{:#x},{:#x},{:#x},{},,,,",
+                    graph.function, block.start, block.end, block.instructions.len())
+                    .map_err(|err| IfaceError::Execution(err.to_string()))?;
+            } else {
+                for edge in edges {
+                    writeln!(cfg_file, "{:#x},{:#x},{:#x},{},{:#x},{},{:?},{:?}",
+                        graph.function, block.start, block.end, block.instructions.len(),
+                        edge.from, edge.to.map(|value| format!("{value:#x}")).unwrap_or_default(),
+                        edge.kind, edge.confidence)
+                        .map_err(|err| IfaceError::Execution(err.to_string()))?;
+                }
+            }
+        }
+    }
+
+    writeln!(dataflow_file, "function,instructions,pcode_operations,definitions,memory_reads,memory_writes,calls,branches,returns,constant_count,type_widths")
+        .map_err(|err| IfaceError::Execution(err.to_string()))?;
+    for (index, summary) in intelligence.data_flow.iter().enumerate() {
+        let function = intelligence.control_flow_graphs.get(index).map(|graph| graph.function).unwrap_or(0);
+        let widths = summary.type_evidence.iter().map(|item| item.storage_size.to_string()).collect::<Vec<_>>().join(";");
+        writeln!(dataflow_file, "{:#x},{},{},{},{},{},{},{},{},{},{}",
+            function, summary.instruction_count, summary.operation_count, summary.definitions,
+            summary.memory_reads, summary.memory_writes, summary.calls, summary.branches,
+            summary.returns, summary.constants.len(), csv(&widths))
+            .map_err(|err| IfaceError::Execution(err.to_string()))?;
+    }
+
+    writeln!(fingerprints_file, "address,name,instructions,pcode_operations,byte_hash,opcode_histogram")
+        .map_err(|err| IfaceError::Execution(err.to_string()))?;
+    for fingerprint in &intelligence.fingerprints {
+        let histogram = fingerprint.opcode_histogram.iter()
+            .map(|(opcode, count)| format!("{opcode}:{count}"))
+            .collect::<Vec<_>>().join(";");
+        writeln!(fingerprints_file, "{:#x},{},{},{},{:#x},{}",
+            fingerprint.address, csv(&fingerprint.name), fingerprint.instruction_count,
+            fingerprint.operation_count, fingerprint.byte_hash, csv(&histogram))
+            .map_err(|err| IfaceError::Execution(err.to_string()))?;
+    }
 
     let csv = |value: &str| format!("\"{}\"", value.replace('\"', "\"\""));
     use std::io::Write as _;
@@ -857,9 +930,15 @@ pub fn ifc_analyze_all(args: &mut IStream, status: &mut IfaceStatus) -> IfaceRes
     c_file.flush().map_err(|err| IfaceError::Execution(err.to_string()))?;
     asm_file.flush().map_err(|err| IfaceError::Execution(err.to_string()))?;
     csv_file.flush().map_err(|err| IfaceError::Execution(err.to_string()))?;
+    xrefs_file.flush().map_err(|err| IfaceError::Execution(err.to_string()))?;
+    cfg_file.flush().map_err(|err| IfaceError::Execution(err.to_string()))?;
+    dataflow_file.flush().map_err(|err| IfaceError::Execution(err.to_string()))?;
+    fingerprints_file.flush().map_err(|err| IfaceError::Execution(err.to_string()))?;
     let report = format!(
-        "GHIDRA-RUST-ENGINE ANALYSIS REPORT\n===============================\nInput file: {filename}\nDiscovered functions: {total}\nSuccessfully decompiled: {processed}\nFunctions with assembly exported: {assembly_ok}\nSize lookup failures: {size_failures}\nDisassembly failures: {assembly_failures}\nPartial disassemblies: {partial_disassemblies}\nUndecoded bytes in recovered function ranges: {undecoded_bytes}\nDecompilation failures: {decompile_failures}\nData symbols: {}\nStrings: {}\nCall edges: {}\n\nLIMITATIONS\n-----------\nFunction discovery is heuristic and may miss functions or include false positives. Assembly covers recovered function ranges only, not every executable byte. Decompiled C is inferred pseudocode, not original source or a guarantee of semantic equivalence. Xrefs, data references, function boundaries, names, and types may be incomplete. This engine does not claim IDA-equivalent completeness.\n\nDIAGNOSTICS\n-----------\n{}",
-        data.len(), strings.len(), calls.len(),
+        "GHIDRA-RUST-ENGINE ANALYSIS REPORT\n===============================\nInput file: {filename}\nDiscovered functions: {total}\nSuccessfully decompiled: {processed}\nFunctions with assembly exported: {assembly_ok}\nSize lookup failures: {size_failures}\nDisassembly failures: {assembly_failures}\nPartial disassemblies: {partial_disassemblies}\nUndecoded bytes in recovered function ranges: {undecoded_bytes}\nDecompilation failures: {decompile_failures}\nData symbols: {}\nStrings: {}\nCall edges: {}\nCross references: {}\nCFGs recovered: {}\nData-flow summaries: {}\nFingerprints: {}\nIntelligence failures: {}\n\nLIMITATIONS\n-----------\nFunction discovery is heuristic and may miss functions or include false positives. Assembly covers recovered function ranges only, not every executable byte. Decompiled C is inferred pseudocode, not original source or a guarantee of semantic equivalence. Xrefs, data references, function boundaries, names, and types may be incomplete. This engine does not claim IDA-equivalent completeness.\n\nDIAGNOSTICS\n-----------\n{}",
+        data.len(), strings.len(), calls.len(), intelligence.cross_references.len(),
+        intelligence.control_flow_graphs.len(), intelligence.data_flow.len(), intelligence.fingerprints.len(),
+        intelligence.failures.len(),
         if diagnostics.is_empty() { "No per-function failures reported.".to_string() } else { diagnostics.join("\n") }
     );
     std::fs::write(&report_path, report)

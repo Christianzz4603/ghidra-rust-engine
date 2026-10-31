@@ -122,7 +122,6 @@ pub struct PcodeOperation {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-#[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct DisassemblyGap {
     pub address: u64,
