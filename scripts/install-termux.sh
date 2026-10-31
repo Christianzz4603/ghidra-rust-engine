@@ -36,6 +36,7 @@ done
 if [ -z "$BINARY" ]; then
     for candidate in \
         "$SCRIPT_DIR/ghidra-rust_cli" \
+        "$SCRIPT_DIR/ghidra_rust_cli" \
         "$SCRIPT_DIR/ghidra-rust_cli".bin \
         "$REPO_ROOT/target/release/examples/decomp" \
         "$SCRIPT_DIR/ghidra-rust-engine/target/release/examples/decomp"; do
@@ -55,13 +56,10 @@ if [ -z "$WRAPPER" ]; then
     printf 'termux-open launcher not found beside installer or in repository scripts/.\n' >&2
     exit 1
 fi
-if [ -e "$DEST/open" ] && [ "$FORCE" -ne 1 ]; then
-    printf 'A command already exists at %s/open. Rerun with --force to replace it.\n' "$DEST" >&2
-    exit 1
-fi
 mkdir -p "$DEST"
 install -m 755 "$BINARY" "$DEST/ghidra-rust_cli"
 ln -sf ghidra-rust_cli "$DEST/ghidra-rust"
-install -m 755 "$WRAPPER" "$DEST/open"
+install -m 755 "$WRAPPER" "$DEST/ghidra-open"
 printf 'Ghidra Rust CLI installed. Run: ghidra-rust_cli --version\n'
-printf 'Load a binary with: open /sdcard/libtest.so\n'
+printf 'Load a binary with: ghidra-open /sdcard/libtest.so\n'
+ if [ -e "$DEST/open" ]; then printf 'Existing Termux open command was preserved.\n'; fi

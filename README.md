@@ -28,7 +28,7 @@ decompile add
 
 ## Standalone Termux binary
 
-The Android release archive contains the self-contained `ghidra-rust_cli` executable, the Termux installer, and the optional `open` launcher. Processor specifications are embedded in the executable, so the device does **not** need the repository, Rust, Cargo, or a separate SLEIGH/language directory.
+The Android release archive contains the self-contained `ghidra-rust_cli` executable, the Termux installer, and the optional `ghidra-open` launcher. Processor specifications are embedded in the executable, so the device does **not** need the repository, Rust, Cargo, or a separate SLEIGH/language directory.
 
 1. Download the archive matching your device ABI from the GitHub Releases page. For most modern Android phones, choose `Android-arm64-v8a`.
 2. Extract the archive.
@@ -38,13 +38,13 @@ The Android release archive contains the self-contained `ghidra-rust_cli` execut
 sh install-termux.sh
 ```
 
-If Termux already has an `open` command, use `sh install-termux.sh --force` to replace it. The installer copies the executable into `$PREFIX/bin`; after installation, the extracted archive and source files can be deleted.
+The installer preserves Termux’s existing `open` command and installs a separate `ghidra-open` command. The installer copies the executable into `$PREFIX/bin`; after installation, the extracted archive and source files can be deleted.
 
 You can run the engine directly with `ghidra-rust_cli`, or load a file with:
 
 ```sh
 ghidra-rust_cli
-open /sdcard/libtest.so
+ghidra-open /sdcard/libtest.so
 ```
 
 To install a locally built executable from the repository, the existing build-and-install workflow still works:
