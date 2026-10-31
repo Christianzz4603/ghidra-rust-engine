@@ -77,6 +77,27 @@ impl DexFile {
     pub fn smali(&self)->Result<String>{let mut out=String::new(); for c in &self.classes {out.push_str(&format!(".class {} {}\n.super {}\n",access(c.access_flags),c.descriptor,c.superclass.as_deref().unwrap_or("Ljava/lang/Object;"))); if let Some(s)=&c.source_file{out.push_str(&format!(".source {:?}\n",s));} for m in &c.methods {let params=m.parameters.iter().map(|x|x.as_str()).collect::<Vec<_>>().join(""); out.push_str(&format!("\n.method {} {}({}){}\n",access(m.access_flags),m.name,params,m.return_type)); if m.code_offset!=0 {out.push_str(&self.method_code_smali(m)?);} out.push_str(".end method\n"); } out.push('\n');} Ok(out)}
     fn method_code_smali(&self,m:&DexMethod)->Result<String>{let o=m.code_offset as usize; let regs=u16_at(&self.bytes,o)?; let ins=u16_at(&self.bytes,o+2)?; let outs=u16_at(&self.bytes,o+4)?; let size=u32_at(&self.bytes,o+12)? as usize; let start=o.checked_add(16).ok_or_else(||fail("code offset overflow"))?; let end=start.checked_add(size.checked_mul(2).ok_or_else(||fail("instruction size overflow"))?).ok_or_else(||fail("instruction offset overflow"))?; if end>self.bytes.len(){return Err(fail("code item outside DEX"));} let mut out=format!("    .registers {regs}\n    .ins {ins}\n    .outs {outs}\n"); let mut pc=0usize; while pc<size {let w=u16_at(&self.bytes,start+pc*2)?; let op=(w&0xff) as u8; let a=(w>>8) as u8; let (name,fmt,len)=opcode(op); let line=match fmt {0=>name.to_string(),1=>format!("{name} v{}",a),2=>format!("{name} v{}, v{}",a&15,a>>4),3=>format!("{name} v{}, #{}",a as u8, u16_at(&self.bytes,start+(pc+1)*2)? as i16),4=>format!("{name} v{}, v{}, v{}",a&15,a>>4,u16_at(&self.bytes,start+(pc+1)*2)?&255),_=>format!(".opcode 0x{op:02x} // unsupported format")}; out.push_str(&format!("    {pc:04x}: {line}\n")); if len==0 || pc+len>size{return Err(fail("invalid instruction width"));} pc+=len;} Ok(out)}
 }
+fn smali_type(descriptor: &str) -> String {
+    let dimensions = descriptor.bytes().take_while(|byte| *byte == b'[').count();
+    let base = &descriptor[dimensions..];
+    let name = match base {
+        "V" => "void".to_string(),
+        "Z" => "boolean".to_string(),
+        "B" => "byte".to_string(),
+        "S" => "short".to_string(),
+        "C" => "char".to_string(),
+        "I" => "int".to_string(),
+        "J" => "long".to_string(),
+        "F" => "float".to_string(),
+        "D" => "double".to_string(),
+        value if value.starts_with('L') && value.ends_with(';') => {
+            value[1..value.len() - 1].replace('/', ".")
+        }
+        value => value.to_string(),
+    };
+    format!("{name}{}", "[]".repeat(dimensions))
+}
+
 fn opcode(op:u8)->(&'static str,u8,usize){match op {0x00=>("nop",0,1),0x01=>("move",2,1),0x02=>("move/from16",3,2),0x03=>("move/16",3,3),0x04=>("move-wide",2,1),0x07=>("move-object",2,1),0x0a=>("move-result",1,1),0x0b=>("move-result-wide",1,1),0x0c=>("move-result-object",1,1),0x0d=>("move-exception",1,1),0x0e=>("return-void",0,1),0x0f=>("return",1,1),0x10=>("return-wide",1,1),0x11=>("return-object",1,1),0x12=>("const/4",2,1),0x13=>("const/16",3,2),0x14=>("const",3,3),0x1a=>("const-string",3,2),0x1b=>("const-string/jumbo",3,3),0x1c=>("const-class",3,2),0x1f=>("check-cast",3,2),0x22=>("new-instance",3,2),0x23=>("new-array",4,2),0x27=>("throw",1,1),0x28=>("goto",1,1),0x29=>("goto/16",3,2),0x2a=>("goto/32",3,3),0x32..=0x37=>("if",4,2),0x38..=0x3d=>("ifz",1,2),0x44..=0x51=>("array-op",4,2),0x52..=0x5f=>("field-op",4,2),0x60..=0x6d=>("static-field-op",3,2),0x6e..=0x72=>("invoke",0,3),0x74..=0x78=>("invoke/range",0,3),0x7b..=0x8f=>("unary-op",4,1),0x90..=0xaf=>("binary-op",4,2),0xb0..=0xcf=>("binary-op/2addr",4,1),0xd0..=0xe2=>("literal-op",3,2),_=>(".opcode",0,1)}}
 impl Apk {
     pub fn open(path:impl AsRef<Path>)->Result<Self>{let bytes=std::fs::read(path.as_ref()).map_err(|e|fail(format!("cannot read APK: {e}")))?;Self::parse(bytes)}
