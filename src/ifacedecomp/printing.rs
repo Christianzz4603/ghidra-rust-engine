@@ -692,7 +692,7 @@ pub fn ifc_analyze_all(args: &mut IStream, status: &mut IfaceStatus) -> IfaceRes
     .map_err(|err| IfaceError::Execution(err.to_string()))?;
     let code_coverage = program
         .scan_code_sections(|gap| {
-            writeln!(coverage_file, "gap,,,,{:#x},{},,", gap.address, gap.length)
+            writeln!(coverage_file, "gap,,,{:#x},{},,,", gap.address, gap.length)
                 .map_err(|err| Error::Lowlevel(err.to_string()))
         })
         .map_err(|err| IfaceError::Execution(format!("Executable-section sweep failed: {}", err.explain())))?;
