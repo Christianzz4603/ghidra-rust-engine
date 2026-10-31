@@ -7,6 +7,9 @@ use ghidra_decompiler::ifacedecomp::{mainloop, register_all_commands, register_c
 use ghidra_decompiler::interface::{IfaceError, IfaceStatus, new_out_stream, out_write};
 use ghidra_decompiler::sleigh_arch::{add_global_language_directory, scan_global_sleigh_directories};
 
+#[path = "webui.rs"]
+mod webui;
+
 const RELEASES_URL: &str = "https://github.com/Christianzz4603/ghidra-rust-engine/releases/latest";
 const API_URL: &str = "https://api.github.com/repos/Christianzz4603/ghidra-rust-engine/releases/latest";
 
@@ -144,9 +147,10 @@ fn main() -> ExitCode {
         .is_some_and(|arg| arg == "--help" || arg == "-h" || arg == "help")
     {
         println!("Ghidra Rust Engine {}", version());
-        println!("Usage: ghidra-rust_cli [--version | --help | setup | update]");
+        println!("Usage: ghidra-rust_cli [--version | --help | setup | update | web [--port=PORT]]");
         println!();
         println!("Run without arguments to open the interactive decompiler console.");
+        println!("Run `ghidra-rust_cli web` to launch the built-in browser workspace.");
         println!("Inside the console: open <binary>, then decompile <function>.");
         println!("Decompiled files are saved in an output/ folder beside this executable by default.");
         println!("Set GHIDRA_DECOMPILER_OUTPUT_DIR to choose another output folder.");
@@ -167,6 +171,10 @@ fn main() -> ExitCode {
                 ExitCode::from(1)
             }
         };
+    }
+    if args.get(1).is_some_and(|arg| arg == "web" || arg == "--web") {
+        let port = args.iter().skip(2).find_map(|arg| arg.strip_prefix("--port=").and_then(|v| v.parse::<u16>().ok())).unwrap_or(8080);
+        return match webui::run(port) { Ok(()) => ExitCode::SUCCESS, Err(err) => { eprintln!("Web UI failed: {err}"); ExitCode::from(1) } };
     }
     if args.get(1).is_some_and(|arg| arg == "update") {
         print_update_status();
