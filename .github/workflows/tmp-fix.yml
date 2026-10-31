@@ -1,0 +1,44 @@
+name: tmp-fix
+
+# Temporary helper for the ci-fix branch only. Refreshes Cargo.lock without
+# upgrading anything, applies machine-applicable clippy fixes, formats, and
+# commits. Pushes made with GITHUB_TOKEN do not start other workflow runs, so
+# this cannot loop. Removed before merging to master.
+on:
+  push:
+    branches: [ci-fix]
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup toolchain install
+      - name: Sync Cargo.lock
+        run: cargo fetch
+      - name: Apply machine-applicable clippy fixes
+        continue-on-error: true
+        run: |
+          cargo clippy --fix --allow-dirty --allow-no-vcs --all-targets
+          cargo clippy --fix --allow-dirty --allow-no-vcs --all-targets --features all-processors
+      - run: cargo fmt --all
+      - name: Remaining clippy findings
+        continue-on-error: true
+        run: |
+          cargo clippy --all-targets -- -D warnings
+          cargo clippy --all-targets --features all-processors -- -D warnings
+      - name: Commit
+        run: |
+          git status --short
+          if git diff --quiet; then
+            echo "no changes"
+            exit 0
+          fi
+          git diff --stat
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "Refresh Cargo.lock, apply clippy fixes and rustfmt"
+          git push
