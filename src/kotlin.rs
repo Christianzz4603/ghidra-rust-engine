@@ -85,14 +85,14 @@ fn fields(bytes: &[u8]) -> Result<Vec<(u32, Value)>> {
     Ok(result)
 }
 
-fn bytes_field<'a>(items: &'a [(u32, Value)], number: u32) -> Vec<&'a [u8]> {
+fn bytes_field(items: &[(u32, Value)], number: u32) -> Vec<&[u8]> {
     items
         .iter()
         .filter_map(|(field, value)| {
-            if *field == number {
-                if let Value::Bytes(bytes) = value {
-                    return Some(bytes.as_slice());
-                }
+            if *field == number
+                && let Value::Bytes(bytes) = value
+            {
+                return Some(bytes.as_slice());
             }
             None
         })
@@ -101,10 +101,10 @@ fn bytes_field<'a>(items: &'a [(u32, Value)], number: u32) -> Vec<&'a [u8]> {
 
 fn int_field(items: &[(u32, Value)], number: u32) -> Option<u32> {
     items.iter().find_map(|(field, value)| {
-        if *field == number {
-            if let Value::Varint(value) = value {
-                return u32::try_from(*value).ok();
-            }
+        if *field == number
+            && let Value::Varint(value) = value
+        {
+            return u32::try_from(*value).ok();
         }
         None
     })
@@ -206,15 +206,15 @@ impl KotlinBuiltins {
             ] {
                 for declaration in bytes_field(&package_fields, field_number) {
                     let declaration_fields = fields(declaration)?;
-                    if let Some(name_index) = int_field(&declaration_fields, 2) {
-                        if let Some(name) = string_table.get(name_index as usize) {
-                            declarations.push(KotlinDeclaration {
-                                kind,
-                                name: name.clone(),
-                                qualified_name: name.clone(),
-                                metadata_index: name_index,
-                            });
-                        }
+                    if let Some(name_index) = int_field(&declaration_fields, 2)
+                        && let Some(name) = string_table.get(name_index as usize)
+                    {
+                        declarations.push(KotlinDeclaration {
+                            kind,
+                            name: name.clone(),
+                            qualified_name: name.clone(),
+                            metadata_index: name_index,
+                        });
                     }
                 }
             }

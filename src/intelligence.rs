@@ -355,11 +355,12 @@ fn cfg(f: u64, i: Vec<Instruction>) -> ControlFlowGraph {
     let mut targets = BTreeMap::new();
     for (n, x) in i.iter().enumerate() {
         let m = x.mnemonic.to_ascii_lowercase();
-        if let Some(t) = hex(&x.operands) {
-            if t >= i[0].address && t <= i.last().unwrap().address {
-                leaders.insert(t);
-                targets.insert(x.address, t);
-            }
+        if let Some(t) = hex(&x.operands)
+            && t >= i[0].address
+            && t <= i.last().unwrap().address
+        {
+            leaders.insert(t);
+            targets.insert(x.address, t);
         }
         if term(&m) && n + 1 < i.len() {
             leaders.insert(i[n + 1].address);
@@ -420,15 +421,15 @@ fn cfg(f: u64, i: Vec<Instruction>) -> ControlFlowGraph {
                     confidence: Confidence::Confirmed,
                 });
             }
-            if call(&m) {
-                if let Some(to) = t {
-                    edges.push(FlowEdge {
-                        from: b.start,
-                        to: Some(to),
-                        kind: FlowKind::Call,
-                        confidence: Confidence::Heuristic,
-                    });
-                }
+            if call(&m)
+                && let Some(to) = t
+            {
+                edges.push(FlowEdge {
+                    from: b.start,
+                    to: Some(to),
+                    kind: FlowKind::Call,
+                    confidence: Confidence::Heuristic,
+                });
             }
         }
     }

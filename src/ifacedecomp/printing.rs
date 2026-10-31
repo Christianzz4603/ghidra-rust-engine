@@ -769,7 +769,7 @@ pub fn ifc_analyze_all(args: &mut IStream, status: &mut IfaceStatus) -> IfaceRes
                 out_write(&optr, &format!("Decompilation skipped for {name}: {}\n", err.explain()));
             }
         }
-        if processed % 25 == 0 && processed > 0 {
+        if processed.is_multiple_of(25) && processed > 0 {
             out_write(&optr, &format!("Progress: {processed}/{total} functions processed\n"));
         }
     }

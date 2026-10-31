@@ -360,7 +360,7 @@ impl DexFile {
             let a = (w >> 8) as u8;
             let (name, fmt, len) = opcode(op);
             let line = match fmt {
-                0 => format!("{name}"),
+                0 => name.to_string(),
                 1 => format!("{name} v{}", a),
                 2 => format!("{name} v{}, v{}", a & 15, a >> 4),
                 3 => format!(
@@ -497,7 +497,10 @@ mod tests {
             access_flags: 0,
             code_offset: 0,
         };
-        assert_eq!(method.java_signature(), "java.lang.String com.example.Foo.bar(int, byte[])");
+        assert_eq!(
+            method.java_signature(),
+            "java.lang.String com.example.Foo.bar(int, byte[])"
+        );
     }
     #[test]
     fn rejects_short_dex() {

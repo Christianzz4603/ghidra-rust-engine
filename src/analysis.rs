@@ -70,12 +70,12 @@ impl AnalysisSelection {
     }
 
     pub fn validate(&self) -> Result<()> {
-        if let (Some(start), Some(end)) = (self.start_address, self.end_address) {
-            if start >= end {
-                return Err(Error::Lowlevel(format!(
-                    "invalid analysis range: start {start:#x} must be below end {end:#x}"
-                )));
-            }
+        if let (Some(start), Some(end)) = (self.start_address, self.end_address)
+            && start >= end
+        {
+            return Err(Error::Lowlevel(format!(
+                "invalid analysis range: start {start:#x} must be below end {end:#x}"
+            )));
         }
         Ok(())
     }
