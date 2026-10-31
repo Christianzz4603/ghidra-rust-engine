@@ -706,6 +706,8 @@ pub fn ifc_analyze_all(args: &mut IStream, status: &mut IfaceStatus) -> IfaceRes
     let cfg_path = directory.join(format!("{binary_name}.cfg.csv"));
     let dataflow_path = directory.join(format!("{binary_name}.dataflow.csv"));
     let fingerprints_path = directory.join(format!("{binary_name}.fingerprints.csv"));
+    let prototypes_path = directory.join(format!("{binary_name}.prototypes.csv"));
+    let intelligence_failures_path = directory.join(format!("{binary_name}.intelligence-failures.csv"));
 
     let mut xrefs_file = std::fs::File::create(&xrefs_path)
         .map_err(|err| IfaceError::Execution(format!("Cannot create {}: {err}", xrefs_path.display())))?;
@@ -715,6 +717,10 @@ pub fn ifc_analyze_all(args: &mut IStream, status: &mut IfaceStatus) -> IfaceRes
         .map_err(|err| IfaceError::Execution(format!("Cannot create {}: {err}", dataflow_path.display())))?;
     let mut fingerprints_file = std::fs::File::create(&fingerprints_path)
         .map_err(|err| IfaceError::Execution(format!("Cannot create {}: {err}", fingerprints_path.display())))?;
+    let mut prototypes_file = std::fs::File::create(&prototypes_path)
+        .map_err(|err| IfaceError::Execution(format!("Cannot create {}: {err}", prototypes_path.display())))?;
+    let mut intelligence_failures_file = std::fs::File::create(&intelligence_failures_path)
+        .map_err(|err| IfaceError::Execution(format!("Cannot create {}: {err}", intelligence_failures_path.display())))?;
 
     writeln!(xrefs_file, "from,to,kind,function,confidence")
         .map_err(|err| IfaceError::Execution(err.to_string()))?;
@@ -768,6 +774,26 @@ pub fn ifc_analyze_all(args: &mut IStream, status: &mut IfaceStatus) -> IfaceRes
         writeln!(fingerprints_file, "{:#x},{},{},{},{:#x},{}",
             fingerprint.address, csv(&fingerprint.name), fingerprint.instruction_count,
             fingerprint.operation_count, fingerprint.byte_hash, csv(&histogram))
+            .map_err(|err| IfaceError::Execution(err.to_string()))?;
+    }
+
+    writeln!(prototypes_file, "address,name,confidence,parameter_registers,return_size_evidence,notes")
+        .map_err(|err| IfaceError::Execution(err.to_string()))?;
+    for prototype in &intelligence.prototypes {
+        let registers = prototype.parameter_registers.join(";");
+        let return_sizes = prototype.return_size_evidence.iter().map(u32::to_string).collect::<Vec<_>>().join(";");
+        let notes = prototype.notes.join(" | ");
+        writeln!(prototypes_file, "{:#x},{},{:?},{},{},{}",
+            prototype.address, csv(&prototype.name), prototype.confidence,
+            csv(&registers), csv(&return_sizes), csv(&notes))
+            .map_err(|err| IfaceError::Execution(err.to_string()))?;
+    }
+
+    writeln!(intelligence_failures_file, "address,name,stage,message")
+        .map_err(|err| IfaceError::Execution(err.to_string()))?;
+    for failure in &intelligence.failures {
+        writeln!(intelligence_failures_file, "{:#x},{},{},{}",
+            failure.address, csv(&failure.name), csv(&failure.stage), csv(&failure.message))
             .map_err(|err| IfaceError::Execution(err.to_string()))?;
     }
 
@@ -950,12 +976,14 @@ pub fn ifc_analyze_all(args: &mut IStream, status: &mut IfaceStatus) -> IfaceRes
     cfg_file.flush().map_err(|err| IfaceError::Execution(err.to_string()))?;
     dataflow_file.flush().map_err(|err| IfaceError::Execution(err.to_string()))?;
     fingerprints_file.flush().map_err(|err| IfaceError::Execution(err.to_string()))?;
+    prototypes_file.flush().map_err(|err| IfaceError::Execution(err.to_string()))?;
+    intelligence_failures_file.flush().map_err(|err| IfaceError::Execution(err.to_string()))?;
     let report = format!(
-        "GHIDRA-RUST-ENGINE ANALYSIS REPORT\n===============================\nInput file: {filename}\nDiscovered functions: {total}\nSuccessfully decompiled: {processed}\nFunctions with assembly exported: {assembly_ok}\nSize lookup failures: {size_failures}\nDisassembly failures: {assembly_failures}\nPartial disassemblies: {partial_disassemblies}\nUndecoded bytes in recovered function ranges: {undecoded_bytes}\nDecompilation failures: {decompile_failures}\nData symbols: {}\nStrings: {}\nCall edges: {}\nExecutable bytes scanned: {}\nExecutable bytes decoded: {}\nUndecoded executable bytes: {}\nSweep instructions: {}\nSweep gaps: {}\nCross references: {}\nCFGs recovered: {}\nData-flow summaries: {}\nFingerprints: {}\nIntelligence failures: {}\n\nLIMITATIONS\n-----------\nFunction discovery is heuristic and may miss functions or include false positives. Assembly covers recovered function ranges only, not every executable byte. Decompiled C is inferred pseudocode, not original source or a guarantee of semantic equivalence. Xrefs, data references, function boundaries, names, and types may be incomplete. This engine does not claim IDA-equivalent completeness.\n\nDIAGNOSTICS\n-----------\n{}",
+        "GHIDRA-RUST-ENGINE ANALYSIS REPORT\n===============================\nInput file: {filename}\nDiscovered functions: {total}\nSuccessfully decompiled: {processed}\nFunctions with assembly exported: {assembly_ok}\nSize lookup failures: {size_failures}\nDisassembly failures: {assembly_failures}\nPartial disassemblies: {partial_disassemblies}\nUndecoded bytes in recovered function ranges: {undecoded_bytes}\nDecompilation failures: {decompile_failures}\nData symbols: {}\nStrings: {}\nCall edges: {}\nExecutable bytes scanned: {}\nExecutable bytes decoded: {}\nUndecoded executable bytes: {}\nSweep instructions: {}\nSweep gaps: {}\nCross references: {}\nCFGs recovered: {}\nData-flow summaries: {}\nFingerprints: {}\nPrototype evidence records: {}\nIntelligence failures: {}\n\nLIMITATIONS\n-----------\nFunction discovery is heuristic and may miss functions or include false positives. Assembly covers recovered function ranges only, not every executable byte. Decompiled C is inferred pseudocode, not original source or a guarantee of semantic equivalence. Xrefs, data references, function boundaries, names, and types may be incomplete. This engine does not claim IDA-equivalent completeness.\n\nDIAGNOSTICS\n-----------\n{}",
         data.len(), strings.len(), calls.len(), code_coverage.requested_bytes, code_coverage.decoded_bytes,
         code_coverage.undecoded_bytes, code_coverage.instruction_count, code_coverage.gap_count, intelligence.cross_references.len(),
         intelligence.control_flow_graphs.len(), intelligence.data_flow.len(), intelligence.fingerprints.len(),
-        intelligence.failures.len(),
+        intelligence.prototypes.len(), intelligence.failures.len(),
         if diagnostics.is_empty() { "No per-function failures reported.".to_string() } else { diagnostics.join("\n") }
     );
     std::fs::write(&report_path, report)
@@ -963,7 +991,7 @@ pub fn ifc_analyze_all(args: &mut IStream, status: &mut IfaceStatus) -> IfaceRes
     out_write(
         &optr,
         &format!(
-            "\nAnalysis finished: {processed}/{total} functions decompiled; {skipped} operation(s) skipped.\nAssembly exported: {assembly_ok}/{total}. Failures: size={size_failures}, disassembly={assembly_failures}, decompilation={decompile_failures}.\nData symbols: {} | Strings: {} | Call edges: {}\nOutput folder: {}\nFiles: {binary_name}.c, {binary_name}.asm, {binary_name}.csv, {binary_name}.coverage.csv, {binary_name}.xrefs.csv, {binary_name}.cfg.csv, {binary_name}.dataflow.csv, {binary_name}.fingerprints.csv, {binary_name}.report.txt\n",
+            "\nAnalysis finished: {processed}/{total} functions decompiled; {skipped} operation(s) skipped.\nAssembly exported: {assembly_ok}/{total}. Failures: size={size_failures}, disassembly={assembly_failures}, decompilation={decompile_failures}.\nData symbols: {} | Strings: {} | Call edges: {}\nOutput folder: {}\nFiles: {binary_name}.c, {binary_name}.asm, {binary_name}.csv, {binary_name}.coverage.csv, {binary_name}.xrefs.csv, {binary_name}.cfg.csv, {binary_name}.dataflow.csv, {binary_name}.fingerprints.csv, {binary_name}.prototypes.csv, {binary_name}.intelligence-failures.csv, {binary_name}.report.txt\n",
             data.len(), strings.len(), calls.len(), directory.display()
         ),
     );
