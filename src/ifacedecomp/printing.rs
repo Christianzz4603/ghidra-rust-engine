@@ -751,6 +751,8 @@ pub fn ifc_analyze_all(args: &mut IStream, status: &mut IfaceStatus) -> IfaceRes
     let mut size_failures = 0usize;
     let mut assembly_failures = 0usize;
     let mut decompile_failures = 0usize;
+    let mut partial_disassemblies = 0usize;
+    let mut undecoded_bytes = 0u64;
     let mut diagnostics = Vec::new();
     let total = functions.len();
     out_write(&optr, &format!("Analyzing {total} discovered function(s)...\n"));
@@ -780,13 +782,27 @@ pub fn ifc_analyze_all(args: &mut IStream, status: &mut IfaceStatus) -> IfaceRes
         };
         let mut function_assembly_ok = false;
         let mut function_decompile_ok = false;
-        match program.disassemble_range(address, size) {
-            Ok(instructions) => {
+        let mut function_undecoded_bytes = 0u64;
+        match program.disassemble_range_recovering(address, size) {
+            Ok(report) => {
                 writeln!(asm_file, "\n; {name} @ {address:#x}")
                     .map_err(|err| IfaceError::Execution(err.to_string()))?;
-                assembly_ok += 1;
-                function_assembly_ok = true;
-                for instruction in instructions {
+                if !report.instructions.is_empty() {
+                    assembly_ok += 1;
+                    function_assembly_ok = true;
+                }
+                if !report.gaps.is_empty() {
+                    partial_disassemblies += 1;
+                    let gap_bytes: u64 = report.gaps.iter().map(|gap| gap.length).sum();
+                    undecoded_bytes += gap_bytes;
+                    function_undecoded_bytes = gap_bytes;
+                    diagnostics.push(format!("{name} @ {address:#x}: partial assembly; {gap_bytes} byte(s) undecoded"));
+                    for gap in &report.gaps {
+                        writeln!(asm_file, "{:#010x}: <undecoded {} byte(s)>", gap.address, gap.length)
+                            .map_err(|err| IfaceError::Execution(err.to_string()))?;
+                    }
+                }
+                for instruction in report.instructions {
                     let bytes = instruction
                         .bytes
                         .iter()
@@ -828,10 +844,11 @@ pub fn ifc_analyze_all(args: &mut IStream, status: &mut IfaceStatus) -> IfaceRes
         }
         writeln!(
             csv_file,
-            "analysis_status,{},{:#x},{},assembly={};decompile={}",
+            "analysis_status,{},{:#x},{},assembly={};decompile={};undecoded_bytes={}",
             csv(&name), address, size,
             if function_assembly_ok { "ok" } else { "failed" },
-            if function_decompile_ok { "ok" } else { "failed" }
+            if function_decompile_ok { "ok" } else { "failed" },
+            function_undecoded_bytes
         ).map_err(|err| IfaceError::Execution(err.to_string()))?;
         if processed.is_multiple_of(25) && processed > 0 {
             out_write(&optr, &format!("Progress: {processed}/{total} functions processed\n"));
@@ -841,7 +858,7 @@ pub fn ifc_analyze_all(args: &mut IStream, status: &mut IfaceStatus) -> IfaceRes
     asm_file.flush().map_err(|err| IfaceError::Execution(err.to_string()))?;
     csv_file.flush().map_err(|err| IfaceError::Execution(err.to_string()))?;
     let report = format!(
-        "GHIDRA-RUST-ENGINE ANALYSIS REPORT\n===============================\nInput file: {filename}\nDiscovered functions: {total}\nSuccessfully decompiled: {processed}\nFunctions with assembly exported: {assembly_ok}\nSize lookup failures: {size_failures}\nDisassembly failures: {assembly_failures}\nDecompilation failures: {decompile_failures}\nData symbols: {}\nStrings: {}\nCall edges: {}\n\nLIMITATIONS\n-----------\nFunction discovery is heuristic and may miss functions or include false positives. Assembly covers recovered function ranges only, not every executable byte. Decompiled C is inferred pseudocode, not original source or a guarantee of semantic equivalence. Xrefs, data references, function boundaries, names, and types may be incomplete. This engine does not claim IDA-equivalent completeness.\n\nDIAGNOSTICS\n-----------\n{}",
+        "GHIDRA-RUST-ENGINE ANALYSIS REPORT\n===============================\nInput file: {filename}\nDiscovered functions: {total}\nSuccessfully decompiled: {processed}\nFunctions with assembly exported: {assembly_ok}\nSize lookup failures: {size_failures}\nDisassembly failures: {assembly_failures}\nPartial disassemblies: {partial_disassemblies}\nUndecoded bytes in recovered function ranges: {undecoded_bytes}\nDecompilation failures: {decompile_failures}\nData symbols: {}\nStrings: {}\nCall edges: {}\n\nLIMITATIONS\n-----------\nFunction discovery is heuristic and may miss functions or include false positives. Assembly covers recovered function ranges only, not every executable byte. Decompiled C is inferred pseudocode, not original source or a guarantee of semantic equivalence. Xrefs, data references, function boundaries, names, and types may be incomplete. This engine does not claim IDA-equivalent completeness.\n\nDIAGNOSTICS\n-----------\n{}",
         data.len(), strings.len(), calls.len(),
         if diagnostics.is_empty() { "No per-function failures reported.".to_string() } else { diagnostics.join("\n") }
     );
