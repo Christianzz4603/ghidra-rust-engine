@@ -1,13 +1,172 @@
+use std::fs;
 use std::io::BufReader;
-use std::path::Path;
-use std::process::ExitCode;
+use std::path::{Path, PathBuf};
+use std::process::{Command, ExitCode};
 
 use ghidra_decompiler::ifacedecomp::{mainloop, register_all_commands, register_console_commands};
 use ghidra_decompiler::interface::{IfaceError, IfaceStatus, new_out_stream, out_write};
 use ghidra_decompiler::sleigh_arch::{add_global_language_directory, scan_global_sleigh_directories};
 
+const REPOSITORY: &str = "Christianzz4603/ghidra-rust-engine";
+const RELEASES_URL: &str = "https://github.com/Christianzz4603/ghidra-rust-engine/releases/latest";
+const API_URL: &str = "https://api.github.com/repos/Christianzz4603/ghidra-rust-engine/releases/latest";
+
+fn version() -> &'static str {
+    option_env!("GHIDRA_ENGINE_VERSION").unwrap_or(env!("CARGO_PKG_VERSION"))
+}
+
+fn home_dir() -> Option<PathBuf> {
+    std::env::var_os("HOME").map(PathBuf::from).or_else(|| {
+        std::env::var_os("USERPROFILE").map(PathBuf::from)
+    })
+}
+
+fn cache_path() -> Option<PathBuf> {
+    home_dir().map(|home| home.join(".cache").join("ghidra-engine").join("latest-release"))
+}
+
+fn parse_tag(body: &str) -> Option<String> {
+    let marker = body.find("\"tag_name\"")?;
+    let tail = &body[marker + "\"tag_name\"".len()..];
+    let colon = tail.find(':')?;
+    let value = tail[colon + 1..].trim_start();
+    let value = value.strip_prefix('"')?;
+    let end = value.find('"')?;
+    Some(value[..end].to_string())
+}
+
+fn version_parts(value: &str) -> Option<(u64, u64, u64)> {
+    let value = value.trim().trim_start_matches('v');
+    let mut parts = value.split('.');
+    let major = parts.next()?.parse().ok()?;
+    let minor = parts.next()?.parse().ok()?;
+    let patch_text = parts.next()?;
+    if parts.next().is_some() || patch_text.contains('-') || patch_text.contains('+') {
+        return None;
+    }
+    let patch = patch_text.parse().ok()?;
+    Some((major, minor, patch))
+}
+
+fn fetch_latest_tag() -> Option<String> {
+    let cache = cache_path()?;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH).ok()?.as_secs();
+
+    if let Ok(contents) = fs::read_to_string(&cache) {
+        let mut lines = contents.lines();
+        if let (Some(timestamp), Some(tag)) = (lines.next(), lines.next()) {
+            if timestamp.parse::<u64>().is_ok_and(|time| now.saturating_sub(time) < 21_600) {
+                return Some(tag.to_string());
+            }
+        }
+    }
+
+    let output = Command::new("curl")
+        .args([
+            "--silent", "--show-error", "--fail", "--location",
+            "--connect-timeout", "2", "--max-time", "4",
+            "--header", "Accept: application/vnd.github+json",
+            "--header", "User-Agent: ghidra-rust-engine",
+            API_URL,
+        ])
+        .output()
+        .ok()?;
+
+    if !output.status.success() {
+        return None;
+    }
+
+    let body = String::from_utf8(output.stdout).ok()?;
+    let tag = parse_tag(&body)?;
+    if let Some(parent) = cache.parent() {
+        let _ = fs::create_dir_all(parent);
+        let _ = fs::write(cache, format!("{now}\n{tag}\n"));
+    }
+    Some(tag)
+}
+
+fn show_update_notice() {
+    let Some(latest) = fetch_latest_tag() else {
+        return;
+    };
+    let Some(current_version) = version_parts(version()) else {
+        return;
+    };
+    let Some(latest_version) = version_parts(&latest) else {
+        return;
+    };
+    if latest_version > current_version {
+        println!();
+        println!("Update available: {} -> {}", version(), latest.trim_start_matches('v'));
+        println!("Download: {RELEASES_URL}");
+        println!("Run `ghidra-engine update` for update instructions.");
+        println!();
+    }
+}
+
+fn setup() -> Result<(), String> {
+    let home = home_dir().ok_or("Could not determine the home directory")?;
+    let config = home.join(".config").join("ghidra-engine");
+    let data = home.join(".local").join("share").join("ghidra-engine");
+    let output = data.join("output");
+    fs::create_dir_all(&config).map_err(|err| err.to_string())?;
+    fs::create_dir_all(&output).map_err(|err| err.to_string())?;
+    let settings = config.join("config.toml");
+    if !settings.exists() {
+        fs::write(
+            &settings,
+            "# Ghidra Rust Engine CLI settings\n# Output directory used by your analysis workflows.\noutput_dir = \"output\"\n",
+        ).map_err(|err| err.to_string())?;
+    }
+    println!("Ghidra Rust Engine {} is initialized.", version());
+    println!("Config: {}", config.display());
+    println!("Workspace: {}", data.display());
+    println!("This does not modify your shell PATH; place the executable in a directory already on PATH.");
+    Ok(())
+}
+
+fn print_update_status() {
+    match fetch_latest_tag() {
+        Some(latest) => {
+            let current = version_parts(version());
+            let available = version_parts(&latest);
+            if current.is_some() && available.is_some() && available > current {
+                println!("Update available: {} -> {}", version(), latest.trim_start_matches('v'));
+                println!("Release: {RELEASES_URL}");
+            } else {
+                println!("Ghidra Rust Engine {} is up to date.", version());
+            }
+        }
+        None => {
+            println!("Could not check for updates. Check your internet connection and try again.");
+            println!("Releases: {RELEASES_URL}");
+        }
+    }
+}
+
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().collect();
+    if args.get(1).is_some_and(|arg| arg == "--version" || arg == "-V" || arg == "version") {
+        println!("ghidra-engine {}", version());
+        return ExitCode::SUCCESS;
+    }
+    if args.get(1).is_some_and(|arg| arg == "setup") {
+        return match setup() {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(err) => {
+                eprintln!("Setup failed: {err}");
+                ExitCode::from(1)
+            }
+        };
+    }
+    if args.get(1).is_some_and(|arg| arg == "update") {
+        print_update_status();
+        return ExitCode::SUCCESS;
+    }
+
+    show_update_notice();
+
     let mut initscript: Option<String> = None;
     let mut extrapaths: Vec<String> = Vec::new();
     let mut index = 1;
@@ -35,7 +194,7 @@ fn main() -> ExitCode {
         }
     }
     let optr = new_out_stream();
-    let mut status = IfaceStatus::new_term("[decomp]> ", Box::new(BufReader::new(std::io::stdin())), optr.clone());
+    let mut status = IfaceStatus::new_term("[ghidra-engine]> ", Box::new(BufReader::new(std::io::stdin())), optr.clone());
     status.attach_sink(&optr, Box::new(std::io::stdout()));
     register_all_commands(&mut status);
     register_console_commands(&mut status);

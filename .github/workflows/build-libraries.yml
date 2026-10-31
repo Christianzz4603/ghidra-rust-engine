@@ -1,23 +1,16 @@
-name: Build native libraries
+name: Build and publish CLI releases
 
 on:
-  workflow_dispatch:
   push:
     branches: [master]
-    paths:
-      - "Cargo.toml"
-      - "Cargo.lock"
-      - "src/**"
-      - ".github/workflows/build-libraries.yml"
-  release:
-    types: [published]
+  workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
   linux:
-    name: Linux ${{ matrix.target }}
+    name: Linux ${{ matrix.name }}
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
@@ -35,17 +28,25 @@ jobs:
       - uses: taiki-e/install-action@v2
         with:
           tool: cross
-      - name: Build all-processor library
+      - name: Build native library
         run: cross build --release --lib --target ${{ matrix.target }} --no-default-features --features all-processors
-      - name: Package library
+      - name: Build CLI
+        env:
+          GHIDRA_ENGINE_VERSION: v0.0.${{ github.run_number }}
+        run: cross build --release --example decomp --target ${{ matrix.target }} --no-default-features --features all-processors
+      - name: Package release files
+        shell: bash
         run: |
-          mkdir -p dist
-          cp target/${{ matrix.target }}/release/libghidra_decompiler.so dist/libghidra-rust-engine-${{ matrix.name }}.so
-          cp target/${{ matrix.target }}/release/libghidra_decompiler.a dist/libghidra-rust-engine-${{ matrix.name }}.a
-          cp target/${{ matrix.target }}/release/libghidra_decompiler.rlib dist/libghidra-rust-engine-${{ matrix.name }}.rlib
+          mkdir -p dist package
+          cp target/${{ matrix.target }}/release/libghidra_decompiler.so dist/ghidra-rust-engine-${{ matrix.name }}.so
+          cp target/${{ matrix.target }}/release/libghidra_decompiler.a dist/ghidra-rust-engine-${{ matrix.name }}.a
+          cp target/${{ matrix.target }}/release/libghidra_decompiler.rlib dist/ghidra-rust-engine-${{ matrix.name }}.rlib
+          cp target/${{ matrix.target }}/release/examples/decomp package/ghidra-engine
+          chmod +x package/ghidra-engine
+          tar -czf dist/ghidra-engine-v0.0.${{ github.run_number }}-${{ matrix.name }}.tar.gz -C package ghidra-engine
       - uses: actions/upload-artifact@v4
         with:
-          name: ghidra-rust-engine-${{ matrix.name }}
+          name: release-${{ matrix.name }}
           path: dist/*
           if-no-files-found: error
           retention-days: 30
@@ -81,24 +82,29 @@ jobs:
       - name: Install Android NDK
         run: sdkmanager "ndk;27.2.12479018"
       - uses: dtolnay/rust-toolchain@1.88.0
-      - name: Install Android Rust target
-        run: rustup target add ${{ matrix.target }}
-      - name: Build Android native library
+        with:
+          targets: ${{ matrix.target }}
+      - name: Build native library and CLI
         shell: bash
+        env:
+          GHIDRA_ENGINE_VERSION: v0.0.${{ github.run_number }}
         run: |
           NDK="$ANDROID_HOME/ndk/27.2.12479018"
           TOOLCHAIN="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin"
           echo "CARGO_TARGET_$(echo '${{ matrix.target }}' | tr '[:lower:]-' '[:upper:]_')_LINKER=$TOOLCHAIN/${{ matrix.linker }}" >> "$GITHUB_ENV"
           cargo build --release --lib --target "${{ matrix.target }}" --no-default-features --features all-processors
-      - name: Package Android library
+          cargo build --release --example decomp --target "${{ matrix.target }}" --no-default-features --features all-processors
+      - name: Package Android release files
         run: |
-          mkdir -p dist
+          mkdir -p dist package
           cp target/${{ matrix.target }}/release/libghidra_decompiler.so dist/libghidra-rust-engine-Android-${{ matrix.abi }}.so
           cp target/${{ matrix.target }}/release/libghidra_decompiler.a dist/libghidra-rust-engine-Android-${{ matrix.abi }}.a
           cp target/${{ matrix.target }}/release/libghidra_decompiler.rlib dist/libghidra-rust-engine-Android-${{ matrix.abi }}.rlib
+          cp target/${{ matrix.target }}/release/examples/decomp package/ghidra-engine
+          tar -czf dist/ghidra-engine-v0.0.${{ github.run_number }}-Android-${{ matrix.abi }}.tar.gz -C package ghidra-engine
       - uses: actions/upload-artifact@v4
         with:
-          name: ghidra-rust-engine-Android-${{ matrix.abi }}
+          name: release-Android-${{ matrix.abi }}
           path: dist/*
           if-no-files-found: error
           retention-days: 30
@@ -111,23 +117,29 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.88.0
         with:
           targets: x86_64-pc-windows-msvc
-      - name: Build Windows library
+      - name: Build native library
         run: cargo build --release --lib --target x86_64-pc-windows-msvc --no-default-features --features all-processors
-      - name: Package Windows library
+      - name: Build CLI
+        env:
+          GHIDRA_ENGINE_VERSION: v0.0.${{ github.run_number }}
+        run: cargo build --release --example decomp --target x86_64-pc-windows-msvc --no-default-features --features all-processors
+      - name: Package Windows release files
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force dist | Out-Null
+          New-Item -ItemType Directory -Force dist, package | Out-Null
           Copy-Item target/x86_64-pc-windows-msvc/release/ghidra_decompiler.dll dist/ghidra-rust-engine-Windows-x64.dll
           Copy-Item target/x86_64-pc-windows-msvc/release/ghidra_decompiler.lib dist/ghidra-rust-engine-Windows-x64.lib
+          Copy-Item target/x86_64-pc-windows-msvc/release/examples/decomp.exe package/ghidra-engine.exe
+          Compress-Archive -Path package/ghidra-engine.exe -DestinationPath dist/ghidra-engine-v0.0.${{ github.run_number }}-Windows-x64.zip
       - uses: actions/upload-artifact@v4
         with:
-          name: ghidra-rust-engine-Windows-x64
+          name: release-Windows-x64
           path: dist/*
           if-no-files-found: error
           retention-days: 30
 
   macos:
-    name: macOS ${{ matrix.target }}
+    name: macOS ${{ matrix.name }}
     runs-on: macos-14
     strategy:
       fail-fast: false
@@ -144,44 +156,49 @@ jobs:
           targets: ${{ matrix.target }}
       - name: Install macOS Rust target
         run: rustup target add ${{ matrix.target }}
-      - name: Build macOS library
+      - name: Build native library
         run: cargo build --release --lib --target ${{ matrix.target }} --no-default-features --features all-processors
-      - name: Package macOS library
+      - name: Build CLI
+        env:
+          GHIDRA_ENGINE_VERSION: v0.0.${{ github.run_number }}
+        run: cargo build --release --example decomp --target ${{ matrix.target }} --no-default-features --features all-processors
+      - name: Package macOS release files
         run: |
-          mkdir -p dist
+          mkdir -p dist package
           cp target/${{ matrix.target }}/release/libghidra_decompiler.dylib dist/libghidra-rust-engine-${{ matrix.name }}.dylib
           cp target/${{ matrix.target }}/release/libghidra_decompiler.a dist/libghidra-rust-engine-${{ matrix.name }}.a
           cp target/${{ matrix.target }}/release/libghidra_decompiler.rlib dist/libghidra-rust-engine-${{ matrix.name }}.rlib
+          cp target/${{ matrix.target }}/release/examples/decomp package/ghidra-engine
+          chmod +x package/ghidra-engine
+          tar -czf dist/ghidra-engine-v0.0.${{ github.run_number }}-${{ matrix.name }}.tar.gz -C package ghidra-engine
       - uses: actions/upload-artifact@v4
         with:
-          name: ghidra-rust-engine-${{ matrix.name }}
+          name: release-${{ matrix.name }}
           path: dist/*
           if-no-files-found: error
           retention-days: 30
 
-  publish-release:
-    name: Publish release assets
-    if: github.event_name == 'release' && github.event.action == 'published'
-    needs:
-      - linux
-      - android
-      - windows
-      - macos
+  publish:
+    name: Publish versioned GitHub Release
+    needs: [linux, android, windows, macos]
     runs-on: ubuntu-24.04
     steps:
-      - name: Download all platform libraries
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
-          pattern: ghidra-rust-engine-*
+          pattern: release-*
           path: release-assets
           merge-multiple: true
       - name: Generate checksums
         working-directory: release-assets
-        run: |
-          find . -maxdepth 1 -type f -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS
-      - name: Attach libraries to GitHub Release
+        run: find . -maxdepth 1 -type f -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS
+      - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.event.release.tag_name }}
+          tag_name: v0.0.${{ github.run_number }}
+          target_commitish: ${{ github.sha }}
+          name: Ghidra Rust Engine v0.0.${{ github.run_number }}
+          generate_release_notes: true
+          draft: false
+          prerelease: false
           files: release-assets/*
           fail_on_unmatched_files: true

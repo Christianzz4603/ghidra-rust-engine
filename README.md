@@ -296,3 +296,18 @@ This is an initial metadata reader, not a complete Kotlin source decompiler. It 
 ## Advanced binary intelligence foundation
 
 The `intelligence` module adds first-pass cross-reference, CFG, data-flow, prototype-evidence, function-fingerprint, and similarity APIs. Direct calls from the native call graph are marked confirmed. Constant-address memory references and assembly-parsed CFG targets are heuristic. CFG and prototype recovery remain preliminary: processor-semantic branch resolution, calling-convention parameter recovery, stack variables, value propagation, jump tables, and signature databases are future work. Similarity is a triage score, not proof of code equivalence.
+
+
+## Standalone CLI releases and updates
+
+Every push to `master` triggers a cross-platform release build. The workflow publishes the CLI executable and native libraries together as a GitHub Release, using an automatically increasing patch version (`v0.0.<workflow-run-number>`). A failed platform build prevents publication, so a release is not marked complete with missing targets.
+
+CLI archives are provided for Android `armeabi-v7a`, `arm64-v8a`, `x86`, and `x86_64`; Linux x86_64 and ARM64; Windows x64; and macOS Intel and Apple Silicon. Extract the archive and run `ghidra-engine` (or `ghidra-engine.exe` on Windows). On Android/Termux, mark the executable as runnable with `chmod +x ghidra-engine`.
+
+Commands:
+- `ghidra-engine --version` prints the build version.
+- `ghidra-engine setup` creates the user configuration and workspace directories.
+- `ghidra-engine update` checks the latest stable GitHub Release and prints the download page.
+- Starting the interactive console checks for a newer release and prints an update notice when one is available. Checks are cached for six hours and require `curl`; lack of network access does not prevent the CLI from starting.
+
+The update notice is informational. It never replaces the running executable automatically; download the archive matching your operating system and CPU architecture from the release page.
