@@ -85,6 +85,8 @@ pub mod program;
 pub mod pseudocode;
 pub mod microcode;
 pub mod reconstruction;
+pub mod flirt;
+pub mod lumina;
 pub mod rangemap;
 pub mod rangeutil;
 pub mod raw_arch;
@@ -125,6 +127,8 @@ pub use intelligence::{
 pub use reconstruction::{CompilerPattern, CompilerPatternKind, ControlFlowReconstruction, DecompilerReconstructor, ExpressionNode, ExpressionOperand, ExpressionReconstruction, FunctionReconstruction, HighLevelReconstruction, ParameterEvidence, ReconstructedSignature, ReturnEvidence, StructuredRegion, StructuredRegionKind, VariableLifetime};
 pub use microcode::{DefUseEdge, MicrocodeAnalyzer, MicrocodeLocation, MicrocodeReport, VarnodeIdentity};
 pub use pseudocode::{DecompileBatch, DecompileFailure, FunctionPseudocode, PseudocodeDecompiler, PseudocodeLine, PseudocodeOptions};
+pub use flirt::{FlirtAnalyzer, FlirtMatch, FlirtOptions, FlirtReport};
+pub use lumina::LuminaClient;
 pub use program::{
     CallEdge, CodeScanSummary, CodeSectionSummary, DataEntry, DisassemblyGap, DisassemblyReport, FunctionEntry,
     FunctionSource, Instruction, InstructionPcode, PcodeOperation, PcodeVarnode, Program, StringEntry, SymbolLoading,

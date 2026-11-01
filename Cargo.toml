@@ -3,11 +3,10 @@ name = "ghidra-decompiler"
 description = "Pure Rust port of the Ghidra decompiler"
 version = "2.1.0"
 edition = "2024"
-rust-version = "1.88"
+rust-version = "1.95"
 license = "Apache-2.0"
 exclude = ["/tests", "/tools", "/fuzz", "/reference", "/ci", "/.github", "/rust-toolchain.toml"]
 authors = ["Jan Bujak <j@exia.io>"]
-repository = "https://github.com/koute/ghidra-decompiler"
 
 [lib]
 crate-type = ["rlib", "cdylib", "staticlib"]
@@ -20,6 +19,9 @@ object = { version = "0.37", default-features = false, features = ["read_core", 
 regex = "1"
 zip = { version = "4", default-features = false, features = ["deflate"] }
 rustc-demangle = { version = "0.1.28", optional = true }
+fast-flirt = "0.2.2"
+serde_json = "1"
+ureq = "2.12"
 
 [profile.release]
 opt-level = 3
@@ -30,9 +32,6 @@ strip = "debuginfo"
 [profile.test]
 opt-level = 1
 
-                                                                           
-                                                                          
-                                                                      
 [profile.release-small]
 inherits = "release"
 opt-level = "s"
@@ -44,11 +43,7 @@ debug = true
 
 [features]
 default = ["desktop"]
-                                                                         
 desktop = ["demangle", "x86", "arm", "aarch64", "mips", "powerpc", "riscv"]
-                                                                            
-                                                                           
-mobile = ["demangle", "arm", "aarch64"]
 demangle = ["dep:cpp_demangle", "dep:rustc-demangle"]
 all-processors = ["6502", "68000", "8048", "8051", "8085", "aarch64", "arm", "atmel", "bpf", "cp1600", "cr16", "dalvik", "data", "ebpf", "hcs08", "hcs12", "hexagon", "jvm", "loongarch", "m16c", "m8c", "mc6800", "mcs96", "mips", "nds32", "pa-risc", "pic", "powerpc", "riscv", "sparc", "superh", "superh4", "ti_msp430", "toy", "tricore", "v850", "x86", "xtensa", "z80"]
 "6502" = []
