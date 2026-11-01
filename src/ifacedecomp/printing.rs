@@ -193,7 +193,7 @@ pub fn ifc_decompile(args: &mut IStream, status: &mut IfaceStatus) -> IfaceResul
             glb.clear_analysis(fd);
         }
         let name = fd.get_name().to_string();
-        out_write(&optr, &format!("Decompiling {name}...\n"));
+        out_write(&optr, &format!("Decompiling {name}\n"));
         let res = with_current_action(glb, |action, glb| {
             action.reset(fd, glb);
             action.perform(fd, glb)
