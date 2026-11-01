@@ -68,12 +68,7 @@ fn json_escape(value: &str) -> String {
     out
 }
 
-fn response(
-    stream: &mut TcpStream,
-    status: &str,
-    content_type: &str,
-    body: &[u8],
-) -> std::io::Result<()> {
+fn response(stream: &mut TcpStream, status: &str, content_type: &str, body: &[u8]) -> std::io::Result<()> {
     write!(
         stream,
         "HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\n\r\n",
@@ -83,12 +78,7 @@ fn response(
 }
 
 fn json_response(stream: &mut TcpStream, status: &str, body: String) -> std::io::Result<()> {
-    response(
-        stream,
-        status,
-        "application/json; charset=utf-8",
-        body.as_bytes(),
-    )
+    response(stream, status, "application/json; charset=utf-8", body.as_bytes())
 }
 
 fn error_json(message: &str) -> String {
@@ -120,12 +110,7 @@ fn handle(mut stream: TcpStream, state: SharedProgram) -> std::io::Result<()> {
         }
         request.extend_from_slice(&chunk[..count]);
         if request.len() > 16 * 1024 {
-            return response(
-                &mut stream,
-                "413 Payload Too Large",
-                "text/plain",
-                b"Request too large",
-            );
+            return response(&mut stream, "413 Payload Too Large", "text/plain", b"Request too large");
         }
         if let Some(pos) = request.windows(4).position(|window| window == b"\r\n\r\n") {
             header_end = pos + 4;
@@ -164,29 +149,17 @@ fn handle(mut stream: TcpStream, state: SharedProgram) -> std::io::Result<()> {
         request.extend_from_slice(&chunk[..count]);
     }
     if request.len() < header_end + content_length {
-        return response(
-            &mut stream,
-            "400 Bad Request",
-            "text/plain",
-            b"Incomplete request",
-        );
+        return response(&mut stream, "400 Bad Request", "text/plain", b"Incomplete request");
     }
     let body = &request[header_end..header_end + content_length];
     let (path, query) = target.split_once('?').unwrap_or((target.as_str(), ""));
     match (method.as_str(), path) {
-        ("GET", "/") => response(
-            &mut stream,
-            "200 OK",
-            "text/html; charset=utf-8",
-            PAGE.as_bytes(),
-        ),
+        ("GET", "/") => response(&mut stream, "200 OK", "text/html; charset=utf-8", PAGE.as_bytes()),
         ("GET", "/api/functions") => {
             let guard = state.lock().unwrap_or_else(|e| e.into_inner());
             match guard.as_ref() {
                 Some(program) => {
-                    let functions = program
-                        .functions()
-                        .map_err(|e| std::io::Error::other(e.explain()))?;
+                    let functions = program.functions().map_err(|e| std::io::Error::other(e.explain()))?;
                     let entries = functions
                         .iter()
                         .map(|f| {
@@ -198,11 +171,7 @@ fn handle(mut stream: TcpStream, state: SharedProgram) -> std::io::Result<()> {
                         })
                         .collect::<Vec<_>>()
                         .join(",");
-                    json_response(
-                        &mut stream,
-                        "200 OK",
-                        format!("{{\"functions\":[{entries}]}}"),
-                    )
+                    json_response(&mut stream, "200 OK", format!("{{\"functions\":[{entries}]}}"))
                 }
                 None => json_response(&mut stream, "409 Conflict", error_json("No binary loaded")),
             }
@@ -210,11 +179,7 @@ fn handle(mut stream: TcpStream, state: SharedProgram) -> std::io::Result<()> {
         ("POST", "/api/open") => {
             let path = String::from_utf8_lossy(body).trim().to_string();
             if path.is_empty() {
-                return json_response(
-                    &mut stream,
-                    "400 Bad Request",
-                    error_json("Binary path is empty"),
-                );
+                return json_response(&mut stream, "400 Bad Request", error_json("Binary path is empty"));
             }
             status_line("Opening binary and discovering functions...");
             match Program::open(Path::new(&path), None) {
@@ -241,29 +206,17 @@ fn handle(mut stream: TcpStream, state: SharedProgram) -> std::io::Result<()> {
                             })
                             .collect::<Vec<_>>()
                             .join(",");
-                        let name = Path::new(&path)
-                            .file_name()
-                            .and_then(|s| s.to_str())
-                            .unwrap_or(&path);
+                        let name = Path::new(&path).file_name().and_then(|s| s.to_str()).unwrap_or(&path);
                         *state.lock().unwrap_or_else(|e| e.into_inner()) = Some(program);
                         json_response(
                             &mut stream,
                             "200 OK",
-                            format!(
-                                "{{\"name\":\"{}\",\"functions\":[{entries}]}}",
-                                json_escape(name)
-                            ),
+                            format!("{{\"name\":\"{}\",\"functions\":[{entries}]}}", json_escape(name)),
                         )
                     }
-                    Err(error) => json_response(
-                        &mut stream,
-                        "500 Internal Server Error",
-                        error_json(&error.explain()),
-                    ),
+                    Err(error) => json_response(&mut stream, "500 Internal Server Error", error_json(&error.explain())),
                 },
-                Err(error) => {
-                    json_response(&mut stream, "400 Bad Request", error_json(&error.explain()))
-                }
+                Err(error) => json_response(&mut stream, "400 Bad Request", error_json(&error.explain())),
             }
         }
         ("GET", "/api/decompile") => match parse_address(query) {
@@ -276,15 +229,11 @@ fn handle(mut stream: TcpStream, state: SharedProgram) -> std::io::Result<()> {
                             "200 OK",
                             format!("{{\"code\":\"{}\"}}", json_escape(&code)),
                         ),
-                        Err(error) => json_response(
-                            &mut stream,
-                            "422 Unprocessable Entity",
-                            error_json(&error.explain()),
-                        ),
+                        Err(error) => {
+                            json_response(&mut stream, "422 Unprocessable Entity", error_json(&error.explain()))
+                        }
                     },
-                    None => {
-                        json_response(&mut stream, "409 Conflict", error_json("No binary loaded"))
-                    }
+                    None => json_response(&mut stream, "409 Conflict", error_json("No binary loaded")),
                 }
             }
             Err(error) => json_response(&mut stream, "400 Bad Request", error_json(&error)),
@@ -300,21 +249,13 @@ fn handle(mut stream: TcpStream, state: SharedProgram) -> std::io::Result<()> {
                                 format!("{{\"address\":\"{:#x}\",\"bytes\":\"{}\",\"mnemonic\":\"{}\",\"operands\":\"{}\"}}",
                                     i.address, bytes, json_escape(&i.mnemonic), json_escape(&i.operands))
                             }).collect::<Vec<_>>().join(",");
-                            json_response(
-                                &mut stream,
-                                "200 OK",
-                                format!("{{\"instructions\":[{rows}]}}"),
-                            )
+                            json_response(&mut stream, "200 OK", format!("{{\"instructions\":[{rows}]}}"))
                         }
-                        Err(error) => json_response(
-                            &mut stream,
-                            "422 Unprocessable Entity",
-                            error_json(&error.explain()),
-                        ),
+                        Err(error) => {
+                            json_response(&mut stream, "422 Unprocessable Entity", error_json(&error.explain()))
+                        }
                     },
-                    None => {
-                        json_response(&mut stream, "409 Conflict", error_json("No binary loaded"))
-                    }
+                    None => json_response(&mut stream, "409 Conflict", error_json("No binary loaded")),
                 }
             }
             Err(error) => json_response(&mut stream, "400 Bad Request", error_json(&error)),
@@ -327,11 +268,7 @@ fn handle(mut stream: TcpStream, state: SharedProgram) -> std::io::Result<()> {
                         Ok(bytes) => {
                             let mut rows = Vec::new();
                             for (index, row) in bytes.chunks(16).enumerate() {
-                                let hex = row
-                                    .iter()
-                                    .map(|b| format!("{b:02x}"))
-                                    .collect::<Vec<_>>()
-                                    .join(" ");
+                                let hex = row.iter().map(|b| format!("{b:02x}")).collect::<Vec<_>>().join(" ");
                                 let ascii = row
                                     .iter()
                                     .map(|b| {
@@ -355,25 +292,16 @@ fn handle(mut stream: TcpStream, state: SharedProgram) -> std::io::Result<()> {
                                 format!("{{\"hex\":\"{}\"}}", json_escape(&rows.join("\n"))),
                             )
                         }
-                        Err(error) => json_response(
-                            &mut stream,
-                            "422 Unprocessable Entity",
-                            error_json(&error.explain()),
-                        ),
+                        Err(error) => {
+                            json_response(&mut stream, "422 Unprocessable Entity", error_json(&error.explain()))
+                        }
                     },
-                    None => {
-                        json_response(&mut stream, "409 Conflict", error_json("No binary loaded"))
-                    }
+                    None => json_response(&mut stream, "409 Conflict", error_json("No binary loaded")),
                 }
             }
             Err(error) => json_response(&mut stream, "400 Bad Request", error_json(&error)),
         },
-        _ => response(
-            &mut stream,
-            "404 Not Found",
-            "text/plain; charset=utf-8",
-            b"Not found",
-        ),
+        _ => response(&mut stream, "404 Not Found", "text/plain; charset=utf-8", b"Not found"),
     }
 }
 
