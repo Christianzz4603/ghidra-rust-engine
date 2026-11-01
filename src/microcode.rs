@@ -193,7 +193,8 @@ mod tests {
         assert_eq!(report.definition_count, 2);
         assert_eq!(report.def_use.len(), 1);
         assert_eq!(report.def_use[0].definition.instruction_address, 0x1000);
-        assert!(report.unused_pure_definitions.is_empty());
+        assert_eq!(report.unused_pure_definitions.len(), 1);
+        assert_eq!(report.unused_pure_definitions[0].instruction_address, 0x1004);
         assert_eq!(report.constant_inputs.len(), 2);
     }
 
