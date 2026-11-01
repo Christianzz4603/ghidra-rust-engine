@@ -117,7 +117,7 @@ fn handle(mut stream: TcpStream, state: SharedProgram) -> std::io::Result<()> {
             break;
         }
     }
-    let headers = String::from_utf8_lossy(&request[..header_end]);
+    let headers = String::from_utf8_lossy(&request[..header_end]).into_owned();
     let mut lines = headers.lines();
     let Some(first) = lines.next() else { return Ok(()) };
     let mut first_parts = first.split_whitespace();
