@@ -15,7 +15,7 @@ jobs:
         uses: dtolnay/rust-toolchain@1.98.1
       - name: Run library tests
         run: cargo test --lib
-      - name: Build decompiler CLI
-        run: cargo build --release --example decomp
+      - name: Build all-processor decompiler CLI
+        run: cargo build --release --example decomp --features all-processors
       - name: Check ARM-focused mobile build
         run: cargo check --no-default-features --features mobile --examples

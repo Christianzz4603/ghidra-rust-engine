@@ -117,7 +117,7 @@ pub mod xml;
 pub mod xml_arch;
 
 pub use analysis::{
-    AnalysisEngine, AnalysisEvent, AnalysisOptions, AnalysisReport, AnalysisSelection, FunctionAnalysis,
+    AnalysisEngine, AnalysisEvent, AnalysisOptions, AnalysisReport, AnalysisSelection, FullAnalysisReport, FunctionAnalysis,
 };
 pub use error::{Error, Result};
 pub use intelligence::{

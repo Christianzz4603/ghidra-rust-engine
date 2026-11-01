@@ -8,7 +8,7 @@ use ghidra_decompiler::Program;
 
 type SharedProgram = Arc<Mutex<Option<Program>>>;
 
-const PAGE: &str = r#"<!doctype html>
+const PAGE: &str = r###"<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -50,7 +50,7 @@ async function selectFunction(f){selected=f;renderFunctions();status("Decompilin
 async function renderView(){if(!selected)return;status("Loading "+view+"...");if(view==="decompile"){const d=await api("/api/decompile?address="+selected.address);show(d.code)}else if(view==="assembly"){const d=await api("/api/disassembly?address="+selected.address);show(d.instructions.map(i=>i.address+"  "+i.bytes+"  "+i.mnemonic+" "+i.operands).join("\n")||"No instructions")}else{const d=await api("/api/hex?address="+selected.address);show(d.hex)}status(selected.name+" · "+selected.address)}
 $("#load").onclick=loadBinary;$("#path").addEventListener("keydown",e=>{if(e.key==="Enter")loadBinary()});$("#filter").oninput=renderFunctions;
 document.querySelectorAll(".tab").forEach(b=>b.onclick=async()=>{document.querySelectorAll(".tab").forEach(x=>x.classList.toggle("active",x===b));view=b.dataset.view;try{await renderView()}catch(e){fail(e)}});
-</script></body></html>"#;
+</script></body></html>"###;
 
 fn json_escape(value: &str) -> String {
     let mut out = String::with_capacity(value.len() + 2);
