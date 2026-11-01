@@ -129,6 +129,10 @@ pub struct HighLevelReconstruction {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FunctionReconstruction {
     pub function: FunctionEntry,
+    /// Native decompiler output, including its recovered C-like declaration.
+    pub pseudocode: String,
+    /// Best-effort first-line declaration extracted from the native output.
+    pub decompiler_declaration: Option<String>,
     pub result: HighLevelReconstruction,
 }
 
@@ -146,6 +150,8 @@ impl DecompilerReconstructor {
         };
         let size = program.function_size(address)?;
         let instructions = if size == 0 { Vec::new() } else { program.disassemble_range(address, size)? };
+        let pseudocode = program.decompile(address)?;
+        let decompiler_declaration = extract_declaration(&pseudocode);
         let pcode = program.function_pcode(address)?;
         let microcode = MicrocodeAnalyzer.analyze_instructions(&pcode);
         let mut control_flow = cfg.as_ref().map(reconstruct_control_flow).unwrap_or_default();
@@ -169,6 +175,8 @@ impl DecompilerReconstructor {
         }
         Ok(FunctionReconstruction {
             function,
+            pseudocode,
+            decompiler_declaration,
             result: HighLevelReconstruction { control_flow, variables, signature, expressions, compiler_patterns, notes },
         })
     }
@@ -188,6 +196,12 @@ impl DecompilerReconstructor {
         }
         Ok(output)
     }
+}
+
+fn extract_declaration(pseudocode: &str) -> Option<String> {
+    let first = pseudocode.lines().find(|line| !line.trim().is_empty())?.trim();
+    let declaration = first.split('{').next().unwrap_or(first).trim();
+    (!declaration.is_empty()).then(|| declaration.to_string())
 }
 
 fn reconstruct_control_flow(cfg: &ControlFlowGraph) -> ControlFlowReconstruction {

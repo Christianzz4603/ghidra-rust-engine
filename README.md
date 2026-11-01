@@ -407,6 +407,7 @@ The `reconstruction` module adds an evidence-oriented reconstruction pass:
 - Incoming register/stack read-before-write evidence for candidate parameters.
 - Return-operation evidence, without inventing an ABI return register or type.
 - Operation expression DAGs with constant, variable, and expression operands.
+- The backend's native C-like pseudocode and a best-effort extracted function declaration, exposing its existing type and control-flow reconstruction rather than pretending the heuristic layer can recover erased source facts.
 - Compiler-pattern candidates for frame setup/teardown, stack protection, PIC addressing,
   tail transfers, thunks, multiply-accumulate, compare widening, and bit masks.
 
