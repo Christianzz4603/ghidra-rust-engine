@@ -416,3 +416,16 @@ Example API: `DecompilerReconstructor.reconstruct_function(&mut program, entry_a
 These findings are deliberately marked heuristic where machine code does not prove the
 original source construct. In particular, source variable lifetimes, exact parameter
 lists, return types, and high-level constructs can be unrecoverable after optimization.
+
+
+### CLI high-level reconstruction
+
+Build the `decomp` example, then run:
+
+```sh
+ghidra-rust_cli reconstruct ./program 0x401000
+```
+
+This prints the backend's pseudocode and its structured reconstruction evidence:
+control-flow regions, variable live ranges, candidate arguments, return evidence,
+expression DAGs, and compiler-pattern candidates.
