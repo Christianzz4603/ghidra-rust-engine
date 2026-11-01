@@ -82,6 +82,7 @@ pub mod printc;
 pub mod printjava;
 pub mod printlanguage;
 pub mod program;
+pub mod pseudocode;
 pub mod rangemap;
 pub mod rangeutil;
 pub mod raw_arch;
@@ -119,6 +120,7 @@ pub use intelligence::{
     BasicBlock, BinaryIntelligence, Confidence, ControlFlowGraph, CrossReference, DataFlowSummary, FlowEdge, FlowKind,
     FunctionFingerprint, FunctionPrototype, IntelligenceReport, ReferenceKind, SimilarFunction, TypeEvidence,
 };
+pub use pseudocode::{DecompileBatch, DecompileFailure, FunctionPseudocode, PseudocodeDecompiler, PseudocodeLine, PseudocodeOptions};
 pub use program::{
     CallEdge, CodeScanSummary, CodeSectionSummary, DataEntry, DisassemblyGap, DisassemblyReport, FunctionEntry,
     FunctionSource, Instruction, InstructionPcode, PcodeOperation, PcodeVarnode, Program, StringEntry, SymbolLoading,

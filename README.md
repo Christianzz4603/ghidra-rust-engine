@@ -349,3 +349,26 @@ On Android/Termux, download the ARM64 executable, then run `chmod +x ghidra-rust
 ### Release performance
 
 Release builds use `opt-level=3`, fat LTO, and one codegen unit for cross-crate optimization. This increases build time and avoids `target-cpu=native` so distributed binaries remain portable. Analysis hot paths use allocation-free assembly sinks during code coverage sweeps, pre-index call edges, hash-based internal aggregation with sorted output, and pre-sized instruction buffers.
+
+
+## Interactive pseudocode API
+
+The `pseudocode` module provides a cross-platform, presentation-oriented API for applications that need Hex-Rays-style function pseudocode. It is an independent Rust implementation layer over this repository's native decompiler, not a copy of Hex-Rays source or a claim of binary compatibility.
+
+```rust
+use ghidra_decompiler::{Program, PseudocodeDecompiler, PseudocodeOptions};
+use std::path::Path;
+
+let mut program = Program::open(Path::new("libexample.so"), None)?;
+let decompiler = PseudocodeDecompiler::new(PseudocodeOptions::default());
+let batch = decompiler.decompile_all(&mut program)?;
+
+for function in batch.functions {
+    println!("{} @ {:#x}", function.name, function.address);
+    println!("{}", function.source);
+}
+println!("{} succeeded, {} failed", batch.succeeded(), batch.failed());
+# Ok::<(), ghidra_decompiler::Error>(())
+```
+
+The API returns per-function pseudocode, numbered display lines, symbol metadata, truncation status, and per-function failures so a UI can keep rendering when an individual function cannot be decompiled. Options can bound the number of functions and output bytes for memory-constrained devices. The initial layer uses the existing Ghidra-derived analysis/decompilation backend; higher-level type recovery, structured variable naming, interactive microcode editing, and richer source mapping remain incremental work.
