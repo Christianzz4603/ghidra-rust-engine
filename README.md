@@ -396,3 +396,22 @@ The next engineering layers are CFG-aware SSA construction, type propagation,
 stack/register variable recovery, calling-convention and prototype inference,
 expression simplification, structured control-flow recovery, and regression
 corpora across x86/x64, ARM/ARM64, and other supported architectures.
+
+
+### High-level reconstruction API
+
+The `reconstruction` module adds an evidence-oriented reconstruction pass:
+
+- Dominator analysis, back-edge loop candidates, conditional regions, and switch-dispatch candidates.
+- P-code storage lifetimes with definition/use positions and basic-block boundary estimates.
+- Incoming register/stack read-before-write evidence for candidate parameters.
+- Return-operation evidence, without inventing an ABI return register or type.
+- Operation expression DAGs with constant, variable, and expression operands.
+- Compiler-pattern candidates for frame setup/teardown, stack protection, PIC addressing,
+  tail transfers, thunks, multiply-accumulate, compare widening, and bit masks.
+
+Example API: `DecompilerReconstructor.reconstruct_function(&mut program, entry_address)`.
+
+These findings are deliberately marked heuristic where machine code does not prove the
+original source construct. In particular, source variable lifetimes, exact parameter
+lists, return types, and high-level constructs can be unrecoverable after optimization.
