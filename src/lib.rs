@@ -106,6 +106,7 @@ pub mod subflow;
 pub mod testfunction;
 pub mod transform;
 pub mod translate;
+pub mod type_recovery;
 pub mod typeop;
 pub mod types;
 pub mod unionresolve;
@@ -126,6 +127,7 @@ pub use intelligence::{
 };
 pub use reconstruction::{CompilerPattern, CompilerPatternKind, ControlFlowReconstruction, DecompilerReconstructor, ExpressionNode, ExpressionOperand, ExpressionReconstruction, FunctionReconstruction, HighLevelReconstruction, ParameterEvidence, ReconstructedSignature, ReturnEvidence, StructuredRegion, StructuredRegionKind, VariableLifetime};
 pub use microcode::{DefUseEdge, MicrocodeAnalyzer, MicrocodeLocation, MicrocodeReport, VarnodeIdentity};
+pub use type_recovery::{RecoveredTypeKind, RecoveredVariableType, TypeConstraintEvidence, TypeRecoveryAnalyzer, TypeRecoveryReport};
 pub use pseudocode::{DecompileBatch, DecompileFailure, FunctionPseudocode, PseudocodeDecompiler, PseudocodeLine, PseudocodeOptions};
 pub use flirt::{FlirtAnalyzer, FlirtMatch, FlirtOptions, FlirtReport};
 pub use lumina::LuminaClient;

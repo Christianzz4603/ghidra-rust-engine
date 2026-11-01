@@ -118,6 +118,7 @@ pub struct CompilerPattern {
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct HighLevelReconstruction {
+    pub type_recovery: crate::type_recovery::TypeRecoveryReport,
     pub control_flow: ControlFlowReconstruction,
     pub variables: Vec<VariableLifetime>,
     pub signature: Option<ReconstructedSignature>,
@@ -154,6 +155,7 @@ impl DecompilerReconstructor {
         let decompiler_declaration = extract_declaration(&pseudocode);
         let pcode = program.function_pcode(address)?;
         let microcode = MicrocodeAnalyzer.analyze_instructions(&pcode);
+        let type_recovery = crate::type_recovery::TypeRecoveryAnalyzer.analyze(&pcode);
         let mut control_flow = cfg.as_ref().map(reconstruct_control_flow).unwrap_or_default();
         add_jump_table_candidates(&mut control_flow, &pcode);
         let variables = reconstruct_lifetimes(&pcode, cfg.as_ref());
@@ -177,7 +179,7 @@ impl DecompilerReconstructor {
             function,
             pseudocode,
             decompiler_declaration,
-            result: HighLevelReconstruction { control_flow, variables, signature, expressions, compiler_patterns, notes },
+            result: HighLevelReconstruction { type_recovery, control_flow, variables, signature, expressions, compiler_patterns, notes },
         })
     }
 
