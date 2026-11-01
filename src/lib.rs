@@ -122,7 +122,7 @@ pub use analysis::{
 pub use error::{Error, Result};
 pub use intelligence::{
     BasicBlock, BinaryIntelligence, Confidence, ControlFlowGraph, CrossReference, DataFlowSummary, FlowEdge, FlowKind,
-    FunctionFingerprint, FunctionPrototype, IntelligenceReport, ReferenceKind, SimilarFunction, TypeEvidence,
+    FunctionFingerprint, FunctionPrototype, FunctionAnalysisFailure, IntelligenceReport, ReferenceKind, SimilarFunction, TypeEvidence,
 };
 pub use reconstruction::{CompilerPattern, CompilerPatternKind, ControlFlowReconstruction, DecompilerReconstructor, ExpressionNode, ExpressionOperand, ExpressionReconstruction, FunctionReconstruction, HighLevelReconstruction, ParameterEvidence, ReconstructedSignature, ReturnEvidence, StructuredRegion, StructuredRegionKind, VariableLifetime};
 pub use microcode::{DefUseEdge, MicrocodeAnalyzer, MicrocodeLocation, MicrocodeReport, VarnodeIdentity};
