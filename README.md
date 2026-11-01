@@ -372,3 +372,27 @@ println!("{} succeeded, {} failed", batch.succeeded(), batch.failed());
 ```
 
 The API returns per-function pseudocode, numbered display lines, symbol metadata, truncation status, and per-function failures so a UI can keep rendering when an individual function cannot be decompiled. Options can bound the number of functions and output bytes for memory-constrained devices. The initial layer uses the existing Ghidra-derived analysis/decompilation backend; higher-level type recovery, structured variable naming, interactive microcode editing, and richer source mapping remain incremental work.
+
+
+## Independent Hex-Rays-style decompiler work
+
+The `hex-rays-style-decompiler` branch is an independent implementation effort.
+It does not copy Hex-Rays source code, private formats, or proprietary algorithms.
+The goal is capability parity through independently implemented analysis passes,
+with compatibility and correctness measured against public binaries and test
+corpora rather than claims of identical internals.
+
+Current foundations on this branch:
+
+- A cross-platform pseudocode API with bounded batch processing and per-function
+  failures (`PseudocodeDecompiler`).
+- A microcode data-flow layer that records P-code definitions, uses, linear
+  def-use edges, constant inputs, and conservatively identified unused pure
+  results (`MicrocodeAnalyzer`).
+- The microcode report explicitly models a linear pass. It is not SSA and does
+  not yet solve CFG-wide reaching definitions, loops, or phi nodes.
+
+The next engineering layers are CFG-aware SSA construction, type propagation,
+stack/register variable recovery, calling-convention and prototype inference,
+expression simplification, structured control-flow recovery, and regression
+corpora across x86/x64, ARM/ARM64, and other supported architectures.
