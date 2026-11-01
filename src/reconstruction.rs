@@ -8,7 +8,7 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use crate::error::Result;
 use crate::intelligence::{BinaryIntelligence, Confidence, ControlFlowGraph, FlowKind, FunctionAnalysisFailure};
-use crate::microcode::{MicrocodeAnalyzer, MicrocodeLocation, MicrocodeReport, VarnodeIdentity};
+use crate::microcode::{MicrocodeAnalyzer, MicrocodeLocation, VarnodeIdentity};
 use crate::opcodes::{get_opname, OpCode};
 use crate::program::{FunctionEntry, Instruction, InstructionPcode, PcodeOperation, Program};
 
