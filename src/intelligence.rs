@@ -138,7 +138,7 @@ impl<'a> BinaryIntelligence<'a> {
                     address: f.address,
                     name: f.name.clone(),
                     stage: "function analysis".into(),
-                    message: error.explain(),
+                    message: error.explain().to_string(),
                 });
             }
         }

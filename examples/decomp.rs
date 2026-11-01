@@ -7,7 +7,7 @@ use ghidra_decompiler::ifacedecomp::{mainloop, register_all_commands, register_c
 use ghidra_decompiler::interface::{IfaceError, IfaceStatus, new_out_stream, out_write};
 use ghidra_decompiler::sleigh_arch::{add_global_language_directory, scan_global_sleigh_directories};
 
-#[path = "webui.rs"]
+#[path = "decomp/webui.rs"]
 mod webui;
 
 const RELEASES_URL: &str = "https://github.com/Christianzz4603/ghidra-rust-engine/releases/latest";
@@ -59,13 +59,12 @@ fn fetch_latest_tag() -> Option<String> {
 
     if let Ok(contents) = fs::read_to_string(&cache) {
         let mut lines = contents.lines();
-        if let (Some(timestamp), Some(tag)) = (lines.next(), lines.next()) {
-            if timestamp
+        if let (Some(timestamp), Some(tag)) = (lines.next(), lines.next())
+            && timestamp
                 .parse::<u64>()
                 .is_ok_and(|time| now.saturating_sub(time) < 21_600)
-            {
-                return Some(tag.to_string());
-            }
+        {
+            return Some(tag.to_string());
         }
     }
 
@@ -174,8 +173,18 @@ fn main() -> ExitCode {
         };
     }
     if args.get(1).is_some_and(|arg| arg == "web" || arg == "--web") {
-        let port = args.iter().skip(2).find_map(|arg| arg.strip_prefix("--port=").and_then(|v| v.parse::<u16>().ok())).unwrap_or(8080);
-        return match webui::run(port) { Ok(()) => ExitCode::SUCCESS, Err(err) => { eprintln!("Web UI failed: {err}"); ExitCode::from(1) } };
+        let port = args
+            .iter()
+            .skip(2)
+            .find_map(|arg| arg.strip_prefix("--port=").and_then(|v| v.parse::<u16>().ok()))
+            .unwrap_or(8080);
+        return match webui::run(port) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(err) => {
+                eprintln!("Web UI failed: {err}");
+                ExitCode::from(1)
+            }
+        };
     }
     if args.get(1).is_some_and(|arg| arg == "update") {
         print_update_status();
@@ -216,6 +225,7 @@ fn main() -> ExitCode {
     );
     status.attach_sink(&optr, Box::new(std::io::stdout()));
     register_all_commands(&mut status);
+    ghidra_decompiler::ifacedecomp::set_decompile_autosave(true);
     register_console_commands(&mut status);
     if let Some(script) = initscript {
         match status.push_script_file(&script, "init> ") {

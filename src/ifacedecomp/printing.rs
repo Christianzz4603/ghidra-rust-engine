@@ -27,6 +27,16 @@ fn no_function(message: &str) -> IfaceError {
     IfaceError::Execution(message.to_string())
 }
 
+static DECOMPILE_AUTOSAVE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Make the `decompile` console command also save the generated C to the output folder and echo it.
+///
+/// Disabled by default so the console command behaves exactly like Ghidra's (it only decompiles and
+/// leaves printing to `print C`). The `ghidra-rust_cli` binary enables it for interactive use.
+pub fn set_decompile_autosave(enabled: bool) {
+    DECOMPILE_AUTOSAVE.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
 fn decompiler_output_dir() -> IfaceResult<std::path::PathBuf> {
     if let Some(path) = std::env::var_os("GHIDRA_DECOMPILER_OUTPUT_DIR") {
         let path = std::path::PathBuf::from(path);
@@ -159,10 +169,6 @@ pub fn ifc_decompile(args: &mut IStream, status: &mut IfaceStatus) -> IfaceResul
     let mut requested_name = String::new();
     args.ws();
     args.read_word_into(&mut requested_name);
-    if requested_name.is_empty() {
-        return Err(IfaceError::Parse("Usage: decompile <function>".to_string()));
-    }
-
     if !requested_name.is_empty() {
         let dcp = decomp_data(status);
         let glb = conf_mut(dcp, "No image loaded")?;
@@ -197,32 +203,34 @@ pub fn ifc_decompile(args: &mut IStream, status: &mut IfaceStatus) -> IfaceResul
             glb.clear_analysis(fd);
         }
         let name = fd.get_name().to_string();
-        out_write(&optr, &format!("Decompiling {name}...\n"));
+        out_write(&optr, &format!("Decompiling {name}\n"));
         let res = with_current_action(glb, |action, glb| {
             action.reset(fd, glb);
             action.perform(fd, glb)
         })?;
         perform_report(&optr, res, glb);
 
-        let ((), text) = with_printer(glb, Some(fd), |printer, ctx| printer.doc_function(ctx))?;
-        let safe_name: String = name
-            .chars()
-            .map(|ch| {
-                if ch.is_ascii_alphanumeric() || ch == '_' || ch == '-' {
-                    ch
-                } else {
-                    '_'
-                }
-            })
-            .collect();
-        let safe_name = if safe_name.is_empty() { "function" } else { &safe_name };
-        let output_dir = decompiler_output_dir()?;
-        let output_path = output_dir.join(format!("{safe_name}.c"));
-        std::fs::write(&output_path, &text).map_err(|err| {
-            IfaceError::Execution(format!("Cannot save decompiled file {}: {err}", output_path.display()))
-        })?;
-        out_write(&optr, &format!("Saved C pseudocode to {}\n", output_path.display()));
-        out_write(&optr, &text);
+        if DECOMPILE_AUTOSAVE.load(std::sync::atomic::Ordering::Relaxed) {
+            let ((), text) = with_printer(glb, Some(fd), |printer, ctx| printer.doc_function(ctx))?;
+            let safe_name: String = name
+                .chars()
+                .map(|ch| {
+                    if ch.is_ascii_alphanumeric() || ch == '_' || ch == '-' {
+                        ch
+                    } else {
+                        '_'
+                    }
+                })
+                .collect();
+            let safe_name = if safe_name.is_empty() { "function" } else { &safe_name };
+            let output_dir = decompiler_output_dir()?;
+            let output_path = output_dir.join(format!("{safe_name}.c"));
+            std::fs::write(&output_path, &text).map_err(|err| {
+                IfaceError::Execution(format!("Cannot save decompiled file {}: {err}", output_path.display()))
+            })?;
+            out_write(&optr, &format!("Saved C pseudocode to {}\n", output_path.display()));
+            out_write(&optr, &text);
+        }
         Ok(())
     })
 }
@@ -960,7 +968,6 @@ pub fn ifc_analyze_all(args: &mut IStream, status: &mut IfaceStatus) -> IfaceRes
     let mut processed = 0usize;
     let mut skipped = 0usize;
     let mut assembly_ok = 0usize;
-    let mut decompile_ok = 0usize;
     let mut size_failures = 0usize;
     let mut assembly_failures = 0usize;
     let mut decompile_failures = 0usize;
@@ -992,7 +999,7 @@ pub fn ifc_analyze_all(args: &mut IStream, status: &mut IfaceStatus) -> IfaceRes
                     "analysis_status,{},{:#x},,size_error={}",
                     csv(&name),
                     address,
-                    csv(&message)
+                    csv(message)
                 )
                 .map_err(|err| IfaceError::Execution(err.to_string()))?;
                 out_write(&optr, &format!("Skipping {name}: {message}\n"));
@@ -1052,7 +1059,6 @@ pub fn ifc_analyze_all(args: &mut IStream, status: &mut IfaceStatus) -> IfaceRes
                     .and_then(|_| c_file.write_all(text.as_bytes()))
                     .map_err(|err| IfaceError::Execution(err.to_string()))?;
                 processed += 1;
-                decompile_ok += 1;
                 function_decompile_ok = true;
             }
             Err(err) => {

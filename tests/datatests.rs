@@ -1,11 +1,17 @@
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use ghidra_decompiler::interface::new_out_stream;
 use ghidra_decompiler::testfunction::{FunctionTestCollection, new_test_console};
 use ghidra_decompiler::xml::xml_tree;
 
 const EXPECTED_TOTAL: i32 = 733;
+
+/// Console output is shown for the first few failing files only, so one systematic
+/// failure does not flood the log; set DATATESTS_CONSOLE to see every file.
+const MAX_CONSOLE_REPORTS: usize = 3;
+static CONSOLE_REPORTS: AtomicUsize = AtomicUsize::new(0);
 
 struct FileOutcome {
     name: String,
@@ -93,7 +99,10 @@ fn run_file(path: &Path) -> FileOutcome {
         let mut collection = FunctionTestCollection::new();
         let mut failures = Vec::new();
         let counts = collection.run_test_file(&filename, &mut console, &mut failures);
-        if counts.is_none() || std::env::var_os("DATATESTS_CONSOLE").is_some() {
+        let failed = counts.is_none() || !failures.is_empty();
+        let wanted = std::env::var_os("DATATESTS_CONSOLE").is_some()
+            || (failed && CONSOLE_REPORTS.fetch_add(1, Ordering::Relaxed) < MAX_CONSOLE_REPORTS);
+        if wanted {
             let diagnostic = output.lock().expect("poisoned output stream lock").clone();
             if !diagnostic.trim().is_empty() {
                 eprintln!("datatest console output for {filename}:\n{diagnostic}");

@@ -8,7 +8,7 @@ use ghidra_decompiler::Program;
 
 type SharedProgram = Arc<Mutex<Option<Program>>>;
 
-const PAGE: &str = r#"<!doctype html>
+const PAGE: &str = r##"<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -50,7 +50,7 @@ async function selectFunction(f){selected=f;renderFunctions();status("Decompilin
 async function renderView(){if(!selected)return;status("Loading "+view+"...");if(view==="decompile"){const d=await api("/api/decompile?address="+selected.address);show(d.code)}else if(view==="assembly"){const d=await api("/api/disassembly?address="+selected.address);show(d.instructions.map(i=>i.address+"  "+i.bytes+"  "+i.mnemonic+" "+i.operands).join("\n")||"No instructions")}else{const d=await api("/api/hex?address="+selected.address);show(d.hex)}status(selected.name+" · "+selected.address)}
 $("#load").onclick=loadBinary;$("#path").addEventListener("keydown",e=>{if(e.key==="Enter")loadBinary()});$("#filter").oninput=renderFunctions;
 document.querySelectorAll(".tab").forEach(b=>b.onclick=async()=>{document.querySelectorAll(".tab").forEach(x=>x.classList.toggle("active",x===b));view=b.dataset.view;try{await renderView()}catch(e){fail(e)}});
-</script></body></html>"#;
+</script></body></html>"##;
 
 fn json_escape(value: &str) -> String {
     let mut out = String::with_capacity(value.len() + 2);
@@ -119,38 +119,58 @@ fn handle(mut stream: TcpStream, state: SharedProgram) -> std::io::Result<()> {
     }
     let headers = String::from_utf8_lossy(&request[..header_end]);
     let mut lines = headers.lines();
-    let Some(first) = lines.next() else { return Ok(()) };
+    let Some(first) = lines.next() else {
+        return Ok(());
+    };
     let mut first_parts = first.split_whitespace();
-    let method = first_parts.next().unwrap_or("");
-    let target = first_parts.next().unwrap_or("/");
-    let content_length = lines.find_map(|line| {
-        let (key, value) = line.split_once(':')?;
-        key.eq_ignore_ascii_case("content-length").then(|| value.trim().parse::<usize>().ok()).flatten()
-    }).unwrap_or(0);
+    let method = first_parts.next().unwrap_or("").to_string();
+    let target = first_parts.next().unwrap_or("/").to_string();
+    let content_length = lines
+        .find_map(|line| {
+            let (key, value) = line.split_once(':')?;
+            key.eq_ignore_ascii_case("content-length")
+                .then(|| value.trim().parse::<usize>().ok())
+                .flatten()
+        })
+        .unwrap_or(0);
     if content_length > 8192 {
-        return response(&mut stream, "413 Payload Too Large", "text/plain", b"Request body too large");
+        return response(
+            &mut stream,
+            "413 Payload Too Large",
+            "text/plain",
+            b"Request body too large",
+        );
     }
     while request.len() < header_end + content_length {
         let count = stream.read(&mut chunk)?;
-        if count == 0 { break; }
+        if count == 0 {
+            break;
+        }
         request.extend_from_slice(&chunk[..count]);
     }
     if request.len() < header_end + content_length {
         return response(&mut stream, "400 Bad Request", "text/plain", b"Incomplete request");
     }
     let body = &request[header_end..header_end + content_length];
-    let (path, query) = target.split_once('?').unwrap_or((target, ""));
-    match (method, path) {
+    let (path, query) = target.split_once('?').unwrap_or((target.as_str(), ""));
+    match (method.as_str(), path) {
         ("GET", "/") => response(&mut stream, "200 OK", "text/html; charset=utf-8", PAGE.as_bytes()),
         ("GET", "/api/functions") => {
             let guard = state.lock().unwrap_or_else(|e| e.into_inner());
             match guard.as_ref() {
                 Some(program) => {
                     let functions = program.functions().map_err(|e| std::io::Error::other(e.explain()))?;
-                    let entries = functions.iter().map(|f| format!(
-                        "{{\"name\":\"{}\",\"address\":\"{:#x}\"}}",
-                        json_escape(&f.name), f.address
-                    )).collect::<Vec<_>>().join(",");
+                    let entries = functions
+                        .iter()
+                        .map(|f| {
+                            format!(
+                                "{{\"name\":\"{}\",\"address\":\"{:#x}\"}}",
+                                json_escape(&f.name),
+                                f.address
+                            )
+                        })
+                        .collect::<Vec<_>>()
+                        .join(",");
                     json_response(&mut stream, "200 OK", format!("{{\"functions\":[{entries}]}}"))
                 }
                 None => json_response(&mut stream, "409 Conflict", error_json("No binary loaded")),
@@ -158,28 +178,45 @@ fn handle(mut stream: TcpStream, state: SharedProgram) -> std::io::Result<()> {
         }
         ("POST", "/api/open") => {
             let path = String::from_utf8_lossy(body).trim().to_string();
-            if path.is_empty() { return json_response(&mut stream, "400 Bad Request", error_json("Binary path is empty")); }
+            if path.is_empty() {
+                return json_response(&mut stream, "400 Bad Request", error_json("Binary path is empty"));
+            }
             status_line("Opening binary and discovering functions...");
             match Program::open(Path::new(&path), None) {
                 Ok(mut program) => match program.discover_functions() {
                     Ok(()) => {
                         let functions = match program.functions() {
                             Ok(items) => items,
-                            Err(error) => return json_response(&mut stream, "500 Internal Server Error", error_json(&error.explain())),
+                            Err(error) => {
+                                return json_response(
+                                    &mut stream,
+                                    "500 Internal Server Error",
+                                    error_json(error.explain()),
+                                );
+                            }
                         };
-                        let entries = functions.iter().map(|f| format!(
-                            "{{\"name\":\"{}\",\"address\":\"{:#x}\"}}",
-                            json_escape(&f.name), f.address
-                        )).collect::<Vec<_>>().join(",");
+                        let entries = functions
+                            .iter()
+                            .map(|f| {
+                                format!(
+                                    "{{\"name\":\"{}\",\"address\":\"{:#x}\"}}",
+                                    json_escape(&f.name),
+                                    f.address
+                                )
+                            })
+                            .collect::<Vec<_>>()
+                            .join(",");
                         let name = Path::new(&path).file_name().and_then(|s| s.to_str()).unwrap_or(&path);
                         *state.lock().unwrap_or_else(|e| e.into_inner()) = Some(program);
-                        json_response(&mut stream, "200 OK", format!(
-                            "{{\"name\":\"{}\",\"functions\":[{entries}]}}", json_escape(name)
-                        ))
+                        json_response(
+                            &mut stream,
+                            "200 OK",
+                            format!("{{\"name\":\"{}\",\"functions\":[{entries}]}}", json_escape(name)),
+                        )
                     }
-                    Err(error) => json_response(&mut stream, "500 Internal Server Error", error_json(&error.explain())),
+                    Err(error) => json_response(&mut stream, "500 Internal Server Error", error_json(error.explain())),
                 },
-                Err(error) => json_response(&mut stream, "400 Bad Request", error_json(&error.explain())),
+                Err(error) => json_response(&mut stream, "400 Bad Request", error_json(error.explain())),
             }
         }
         ("GET", "/api/decompile") => match parse_address(query) {
@@ -187,8 +224,14 @@ fn handle(mut stream: TcpStream, state: SharedProgram) -> std::io::Result<()> {
                 let mut guard = state.lock().unwrap_or_else(|e| e.into_inner());
                 match guard.as_mut() {
                     Some(program) => match program.decompile(address) {
-                        Ok(code) => json_response(&mut stream, "200 OK", format!("{{\"code\":\"{}\"}}", json_escape(&code))),
-                        Err(error) => json_response(&mut stream, "422 Unprocessable Entity", error_json(&error.explain())),
+                        Ok(code) => json_response(
+                            &mut stream,
+                            "200 OK",
+                            format!("{{\"code\":\"{}\"}}", json_escape(&code)),
+                        ),
+                        Err(error) => {
+                            json_response(&mut stream, "422 Unprocessable Entity", error_json(error.explain()))
+                        }
                     },
                     None => json_response(&mut stream, "409 Conflict", error_json("No binary loaded")),
                 }
@@ -208,7 +251,9 @@ fn handle(mut stream: TcpStream, state: SharedProgram) -> std::io::Result<()> {
                             }).collect::<Vec<_>>().join(",");
                             json_response(&mut stream, "200 OK", format!("{{\"instructions\":[{rows}]}}"))
                         }
-                        Err(error) => json_response(&mut stream, "422 Unprocessable Entity", error_json(&error.explain())),
+                        Err(error) => {
+                            json_response(&mut stream, "422 Unprocessable Entity", error_json(error.explain()))
+                        }
                     },
                     None => json_response(&mut stream, "409 Conflict", error_json("No binary loaded")),
                 }
@@ -224,12 +269,32 @@ fn handle(mut stream: TcpStream, state: SharedProgram) -> std::io::Result<()> {
                             let mut rows = Vec::new();
                             for (index, row) in bytes.chunks(16).enumerate() {
                                 let hex = row.iter().map(|b| format!("{b:02x}")).collect::<Vec<_>>().join(" ");
-                                let ascii = row.iter().map(|b| if b.is_ascii_graphic() || *b == b' ' { *b as char } else { '.' }).collect::<String>();
-                                rows.push(format!("{:#010x}  {:<47}  {}", address + (index * 16) as u64, hex, ascii));
+                                let ascii = row
+                                    .iter()
+                                    .map(|b| {
+                                        if b.is_ascii_graphic() || *b == b' ' {
+                                            *b as char
+                                        } else {
+                                            '.'
+                                        }
+                                    })
+                                    .collect::<String>();
+                                rows.push(format!(
+                                    "{:#010x}  {:<47}  {}",
+                                    address + (index * 16) as u64,
+                                    hex,
+                                    ascii
+                                ));
                             }
-                            json_response(&mut stream, "200 OK", format!("{{\"hex\":\"{}\"}}", json_escape(&rows.join("\n"))))
+                            json_response(
+                                &mut stream,
+                                "200 OK",
+                                format!("{{\"hex\":\"{}\"}}", json_escape(&rows.join("\n"))),
+                            )
                         }
-                        Err(error) => json_response(&mut stream, "422 Unprocessable Entity", error_json(&error.explain())),
+                        Err(error) => {
+                            json_response(&mut stream, "422 Unprocessable Entity", error_json(error.explain()))
+                        }
                     },
                     None => json_response(&mut stream, "409 Conflict", error_json("No binary loaded")),
                 }
