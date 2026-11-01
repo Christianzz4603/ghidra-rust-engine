@@ -105,7 +105,7 @@ pub struct ExpressionReconstruction {
 pub enum CompilerPatternKind {
     StackFrameSetup, StackFrameTeardown, StackCanary,
     PositionIndependentAddressing, TailCall, FunctionThunk,
-    LoopVectorizationCandidate, MultiplyAccumulate, CompareAndSelect, BitMasking,
+    LoopVectorizationCandidate, MultiplyAccumulate, CompareAndSelect, BitMasking, JumpTableDispatch,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -148,7 +148,8 @@ impl DecompilerReconstructor {
         let instructions = if size == 0 { Vec::new() } else { program.disassemble_range(address, size)? };
         let pcode = program.function_pcode(address)?;
         let microcode = MicrocodeAnalyzer.analyze_instructions(&pcode);
-        let control_flow = cfg.as_ref().map(reconstruct_control_flow).unwrap_or_default();
+        let mut control_flow = cfg.as_ref().map(reconstruct_control_flow).unwrap_or_default();
+        add_jump_table_candidates(&mut control_flow, &pcode);
         let variables = reconstruct_lifetimes(&pcode, cfg.as_ref());
         let signature = Some(reconstruct_signature(&function, &pcode));
         let expressions = reconstruct_expressions(&pcode);
@@ -266,6 +267,7 @@ fn reconstruct_control_flow(cfg: &ControlFlowGraph) -> ControlFlowReconstruction
             evidence: "Conditional branch with two reachable paths; join is an approximation".into(),
         });
     }
+    result.irreducible_scc_candidates = irreducible_components(&nodes, &successors, &predecessors);
     for (source, targets) in &successors {
         if targets.len() >= 3 {
             result.regions.push(StructuredRegion {
@@ -276,6 +278,71 @@ fn reconstruct_control_flow(cfg: &ControlFlowGraph) -> ControlFlowReconstruction
         }
     }
     result
+}
+
+fn irreducible_components(
+    nodes: &[u64],
+    successors: &BTreeMap<u64, BTreeSet<u64>>,
+    predecessors: &BTreeMap<u64, BTreeSet<u64>>,
+) -> Vec<Vec<u64>> {
+    fn finish(node: u64, successors: &BTreeMap<u64, BTreeSet<u64>>, seen: &mut BTreeSet<u64>, order: &mut Vec<u64>) {
+        if !seen.insert(node) { return; }
+        for next in successors.get(&node).into_iter().flatten() {
+            finish(*next, successors, seen, order);
+        }
+        order.push(node);
+    }
+    fn collect(node: u64, predecessors: &BTreeMap<u64, BTreeSet<u64>>, seen: &mut BTreeSet<u64>, component: &mut Vec<u64>) {
+        if !seen.insert(node) { return; }
+        component.push(node);
+        for next in predecessors.get(&node).into_iter().flatten() {
+            collect(*next, predecessors, seen, component);
+        }
+    }
+    let mut seen = BTreeSet::new();
+    let mut order = Vec::new();
+    for node in nodes { finish(*node, successors, &mut seen, &mut order); }
+    seen.clear();
+    let mut irreducible = Vec::new();
+    for node in order.into_iter().rev() {
+        if seen.contains(&node) { continue; }
+        let mut component = Vec::new();
+        collect(node, predecessors, &mut seen, &mut component);
+        let cyclic = component.len() > 1 || successors.get(&node).is_some_and(|set| set.contains(&node));
+        if !cyclic { continue; }
+        let members: BTreeSet<u64> = component.iter().copied().collect();
+        let entry_count = component.iter().filter(|target| {
+            predecessors.get(target).into_iter().flatten().any(|pred| !members.contains(pred))
+        }).count();
+        if entry_count > 1 {
+            component.sort_unstable();
+            irreducible.push(component);
+        }
+    }
+    irreducible
+}
+
+fn add_jump_table_candidates(result: &mut ControlFlowReconstruction, pcode: &[InstructionPcode]) {
+    let flat: Vec<_> = pcode.iter().flat_map(|instruction| {
+        instruction.operations.iter().map(move |operation| (instruction.address, operation.opcode))
+    }).collect();
+    for (index, (address, opcode)) in flat.iter().enumerate() {
+        if *opcode != OpCode::Branchind { continue; }
+        let start = index.saturating_sub(12);
+        let window = &flat[start..index];
+        let has_table_load = window.iter().any(|(_, op)| *op == OpCode::Load);
+        let has_index_math = window.iter().any(|(_, op)| matches!(op, OpCode::IntMult | OpCode::Ptradd | OpCode::IntLeft | OpCode::IntAdd));
+        if has_table_load && has_index_math {
+            result.regions.push(StructuredRegion {
+                kind: StructuredRegionKind::SwitchCandidate,
+                header: *address,
+                join: None,
+                members: Vec::new(),
+                confidence: Confidence::Heuristic,
+                evidence: "Indirect branch preceded by indexed address arithmetic and a memory load, consistent with a compiler jump table".into(),
+            });
+        }
+    }
 }
 
 fn natural_loop_members(header: u64, tail: u64, predecessors: &BTreeMap<u64, BTreeSet<u64>>) -> Vec<u64> {
@@ -465,6 +532,13 @@ fn detect_compiler_patterns(instructions: &[Instruction], pcode: &[InstructionPc
     }
     if ops.windows(2).any(|w| matches!(w[0], OpCode::IntLess | OpCode::IntLessequal | OpCode::IntSless | OpCode::IntSlessequal) && w[1] == OpCode::IntZext) {
         found.push(pattern(CompilerPatternKind::CompareAndSelect, first_addr, "Comparison result widened into an integer value"));
+    }
+    if ops.contains(&OpCode::Branchind) {
+        let has_load = ops.contains(&OpCode::Load);
+        let has_index = ops.iter().any(|op| matches!(op, OpCode::IntMult | OpCode::Ptradd | OpCode::IntLeft | OpCode::IntAdd));
+        if has_load && has_index {
+            found.push(pattern(CompilerPatternKind::JumpTableDispatch, first_addr, "Indirect branch with table load and index arithmetic"));
+        }
     }
     if ops.iter().any(|op| matches!(op, OpCode::IntAnd | OpCode::IntOr | OpCode::IntXor)) {
         found.push(pattern(CompilerPatternKind::BitMasking, first_addr, "Bitwise operations may encode masks, flags, or packed fields"));
