@@ -225,6 +225,7 @@ fn main() -> ExitCode {
     );
     status.attach_sink(&optr, Box::new(std::io::stdout()));
     register_all_commands(&mut status);
+    ghidra_decompiler::ifacedecomp::set_decompile_autosave(true);
     register_console_commands(&mut status);
     if let Some(script) = initscript {
         match status.push_script_file(&script, "init> ") {

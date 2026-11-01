@@ -27,6 +27,16 @@ fn no_function(message: &str) -> IfaceError {
     IfaceError::Execution(message.to_string())
 }
 
+static DECOMPILE_AUTOSAVE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Make the `decompile` console command also save the generated C to the output folder and echo it.
+///
+/// Disabled by default so the console command behaves exactly like Ghidra's (it only decompiles and
+/// leaves printing to `print C`). The `ghidra-rust_cli` binary enables it for interactive use.
+pub fn set_decompile_autosave(enabled: bool) {
+    DECOMPILE_AUTOSAVE.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
 fn decompiler_output_dir() -> IfaceResult<std::path::PathBuf> {
     if let Some(path) = std::env::var_os("GHIDRA_DECOMPILER_OUTPUT_DIR") {
         let path = std::path::PathBuf::from(path);
@@ -200,25 +210,27 @@ pub fn ifc_decompile(args: &mut IStream, status: &mut IfaceStatus) -> IfaceResul
         })?;
         perform_report(&optr, res, glb);
 
-        let ((), text) = with_printer(glb, Some(fd), |printer, ctx| printer.doc_function(ctx))?;
-        let safe_name: String = name
-            .chars()
-            .map(|ch| {
-                if ch.is_ascii_alphanumeric() || ch == '_' || ch == '-' {
-                    ch
-                } else {
-                    '_'
-                }
-            })
-            .collect();
-        let safe_name = if safe_name.is_empty() { "function" } else { &safe_name };
-        let output_dir = decompiler_output_dir()?;
-        let output_path = output_dir.join(format!("{safe_name}.c"));
-        std::fs::write(&output_path, &text).map_err(|err| {
-            IfaceError::Execution(format!("Cannot save decompiled file {}: {err}", output_path.display()))
-        })?;
-        out_write(&optr, &format!("Saved C pseudocode to {}\n", output_path.display()));
-        out_write(&optr, &text);
+        if DECOMPILE_AUTOSAVE.load(std::sync::atomic::Ordering::Relaxed) {
+            let ((), text) = with_printer(glb, Some(fd), |printer, ctx| printer.doc_function(ctx))?;
+            let safe_name: String = name
+                .chars()
+                .map(|ch| {
+                    if ch.is_ascii_alphanumeric() || ch == '_' || ch == '-' {
+                        ch
+                    } else {
+                        '_'
+                    }
+                })
+                .collect();
+            let safe_name = if safe_name.is_empty() { "function" } else { &safe_name };
+            let output_dir = decompiler_output_dir()?;
+            let output_path = output_dir.join(format!("{safe_name}.c"));
+            std::fs::write(&output_path, &text).map_err(|err| {
+                IfaceError::Execution(format!("Cannot save decompiled file {}: {err}", output_path.display()))
+            })?;
+            out_write(&optr, &format!("Saved C pseudocode to {}\n", output_path.display()));
+            out_write(&optr, &text);
+        }
         Ok(())
     })
 }
