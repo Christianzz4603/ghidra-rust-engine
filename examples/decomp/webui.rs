@@ -138,8 +138,8 @@ fn handle(mut stream: TcpStream, state: SharedProgram) -> std::io::Result<()> {
         return Ok(());
     };
     let mut first_parts = first.split_whitespace();
-    let method = first_parts.next().unwrap_or("");
-    let target = first_parts.next().unwrap_or("/");
+    let method = first_parts.next().unwrap_or("").to_string();
+    let target = first_parts.next().unwrap_or("/").to_string();
     let content_length = lines
         .find_map(|line| {
             let (key, value) = line.split_once(':')?;
@@ -172,8 +172,8 @@ fn handle(mut stream: TcpStream, state: SharedProgram) -> std::io::Result<()> {
         );
     }
     let body = &request[header_end..header_end + content_length];
-    let (path, query) = target.split_once('?').unwrap_or((target, ""));
-    match (method, path) {
+    let (path, query) = target.split_once('?').unwrap_or((target.as_str(), ""));
+    match (method.as_str(), path) {
         ("GET", "/") => response(
             &mut stream,
             "200 OK",
