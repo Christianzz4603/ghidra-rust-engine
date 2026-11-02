@@ -37,7 +37,6 @@ const MAX_INSTRUCTION_BYTES: i32 = 64;
 const MAX_DISASSEMBLY_BYTES: u64 = 4 * 1024 * 1024;
 const MAX_DECOMPILE_FUNCTION_BYTES: u64 = 1024 * 1024;
 
-#[derive(Default)]
 struct PcodeCache {
     entries: HashMap<(u64, u64), Arc<Vec<InstructionPcode>>>,
     order: VecDeque<(u64, u64)>,
