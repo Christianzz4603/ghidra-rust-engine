@@ -397,7 +397,7 @@ fn parse_binary(data: &[u8]) -> ParsedObject {
 }
 
 fn is_supported_object_magic(magic: [u8; 4]) -> bool {
-    magic == *b"\\x7fELF"
+    magic == [0x7f, b'E', b'L', b'F']
         || &magic[..2] == b"MZ"
         || matches!(magic,
             [0xce, 0xfa, 0xed, 0xfe] | [0xfe, 0xed, 0xfa, 0xce]
