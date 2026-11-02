@@ -11,6 +11,7 @@
 )]
 
 pub mod action;
+pub mod abi;
 pub mod address;
 pub mod analysis;
 pub mod architecture;
@@ -46,6 +47,8 @@ pub mod funcdata;
 pub mod globalcontext;
 pub mod grammar;
 pub mod graph;
+pub mod ghidra_host;
+pub mod ghidra_worker;
 pub mod heritage;
 pub mod ifacedecomp;
 pub mod inject_sleigh;
@@ -82,12 +85,19 @@ pub mod printc;
 pub mod printjava;
 pub mod printlanguage;
 pub mod program;
+pub mod pseudocode;
+pub mod microcode;
+pub mod reconstruction;
+pub mod flirt;
+pub mod filemanage;
+pub mod lumina;
 pub mod rangemap;
 pub mod rangeutil;
 pub mod raw_arch;
 pub mod ruleaction;
 pub mod semantics;
 pub mod slaformat;
+pub mod signature;
 pub mod sleigh;
 pub mod sleigh_arch;
 pub mod sleighbase;
@@ -95,12 +105,14 @@ pub mod slghpatexpress;
 pub mod slghpattern;
 pub mod slghsymbol;
 pub mod space;
+pub mod ssa;
 pub mod stdsort;
 pub mod stringmanage;
 pub mod subflow;
 pub mod testfunction;
 pub mod transform;
 pub mod translate;
+pub mod type_recovery;
 pub mod typeop;
 pub mod types;
 pub mod unionresolve;
@@ -112,16 +124,26 @@ pub mod xml;
 pub mod xml_arch;
 
 pub use analysis::{
-    AnalysisEngine, AnalysisEvent, AnalysisOptions, AnalysisReport, AnalysisSelection, FunctionAnalysis,
+    AnalysisEngine, AnalysisEvent, AnalysisOptions, AnalysisReport, AnalysisSelection, FullAnalysisReport, FunctionAnalysis,
 };
 pub use error::{Error, Result};
+pub use abi::{Abi, AbiArgumentAllocator, AbiLocation, AbiProfile, AbiValueClass};
+pub use ssa::{SsaAnalyzer, SsaBlock, SsaDefinition, SsaOperation, SsaPhi, SsaReport, SsaUse, SsaVersion};
 pub use intelligence::{
     BasicBlock, BinaryIntelligence, Confidence, ControlFlowGraph, CrossReference, DataFlowSummary, FlowEdge, FlowKind,
-    FunctionFingerprint, FunctionPrototype, IntelligenceReport, ReferenceKind, SimilarFunction, TypeEvidence,
+    FunctionFingerprint, FunctionPrototype, FunctionAnalysisFailure, IntelligenceReport, ReferenceKind, SimilarFunction, TypeEvidence,
 };
+pub use reconstruction::{CompilerPattern, CompilerPatternKind, ControlFlowReconstruction, DecompilerReconstructor, ExpressionNode, ExpressionOperand, ExpressionReconstruction, FunctionReconstruction, HighLevelReconstruction, ParameterEvidence, ReconstructedSignature, ReturnEvidence, StructuredRegion, StructuredRegionKind, VariableLifetime};
+pub use microcode::{DefUseEdge, MicrocodeAnalyzer, MicrocodeLocation, MicrocodeReport, VarnodeIdentity};
+pub use type_recovery::{RecoveredTypeKind, RecoveredVariableType, TypeConstraintEvidence, TypeRecoveryAnalyzer, TypeRecoveryReport};
+pub use pseudocode::{DecompileBatch, DecompileFailure, FunctionPseudocode, PseudocodeDecompiler, PseudocodeLine, PseudocodeOptions};
+pub use flirt::{FlirtAnalyzer, FlirtMatch, FlirtOptions, FlirtReport};
+pub use lumina::LuminaClient;
+pub use signature::{FunctionSignature, SignatureFeature, SignatureKind, SignatureSettings};
+pub use ghidra_host::{CommentDescriptor, ContextValueDescriptor, DataTypeDescriptor, Endianness, FunctionDescriptor, ParameterDescriptor, HostCommand, HostRequest, HostResponse, MemoryBlock, ProgramSnapshot, ReferenceDescriptor, RelocationDescriptor, SymbolDescriptor};
 pub use program::{
     CallEdge, CodeScanSummary, CodeSectionSummary, DataEntry, DisassemblyGap, DisassemblyReport, FunctionEntry,
-    FunctionSource, Instruction, InstructionPcode, PcodeOperation, PcodeVarnode, Program, StringEntry, SymbolLoading,
+    FunctionSource, ImportedDataType, ImportedFunctionSignature, ImportedParameter, Instruction, InstructionPcode, PcodeOperation, PcodeVarnode, Program, ProgramReference, ProgramRelocation, StringEntry, SymbolLoading,
 };
 
 pub use dex::{Apk, DexClass, DexFile, DexMethod};

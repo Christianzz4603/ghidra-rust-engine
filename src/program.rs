@@ -3,7 +3,8 @@ mod discovery;
 mod stubs;
 mod symbols;
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::cell::RefCell;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fmt;
 use std::path::Path;
 use std::sync::Arc;
@@ -11,8 +12,10 @@ use std::sync::Arc;
 use crate::address::Address;
 use crate::architecture::{Architecture, ArchitectureBuilder};
 use crate::callgraph::CallGraph;
+use crate::comment::{Comment, CommentDatabase};
 use crate::database::{Database, ScopeId, SymbolId};
 use crate::error::{Error, Result};
+use crate::globalcontext::ContextDatabase;
 use crate::loadimage::LoadImageFunc;
 use crate::object_arch::{ObjectArchitecture, is_object_file};
 use crate::opcodes::{OpCode, get_opname};
@@ -23,13 +26,29 @@ use crate::translate::{AddrSpaceManager, AssemblyEmit, PcodeEmit};
 use crate::types::TypeMetatype;
 use crate::xml::DocumentStorage;
 
+const MAX_PCODE_CACHE_BYTES: usize = 64 * 1024 * 1024;
+
+#[derive(Default)]
+struct PcodeCache {
+    entries: HashMap<(u64, u64), Arc<Vec<InstructionPcode>>>,
+    estimated_bytes: usize,
+}
+
 pub struct Program {
     architecture: Box<Architecture>,
     functions: BTreeMap<SymbolId, FunctionRecord>,
     data: BTreeMap<u64, DataRecord>,
+    references: BTreeMap<u64, Vec<ProgramReference>>,
+    relocations: BTreeMap<u64, ProgramRelocation>,
+    imported_types: BTreeMap<String, ImportedDataType>,
+    data_symbol_types: BTreeMap<u64, String>,
+    function_signatures: BTreeMap<u64, ImportedFunctionSignature>,
     string_sections: Vec<std::ops::Range<u64>>,
     code_sections: Vec<std::ops::Range<u64>>,
     entry: Option<u64>,
+    // Translation is immutable for a loaded image. Shared cached streams let
+    // intelligence, SSA, and reconstruction reuse expensive P-code decoding.
+    pcode_cache: RefCell<PcodeCache>,
 }
 
 const MIN_STRING_LENGTH: usize = 4;
@@ -158,6 +177,7 @@ pub struct CodeScanSummary {
     pub gap_count: u64,
 }
 
+#[derive(Clone, Debug)]
 pub struct InstructionPcode {
     pub address: u64,
     pub length: usize,
@@ -169,6 +189,47 @@ pub struct CallEdge {
     pub caller: u64,
     pub callee: u64,
     pub call_site: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct ProgramReference {
+    pub from: u64,
+    pub to: u64,
+    pub kind: String,
+    pub is_primary: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ProgramRelocation {
+    pub address: u64,
+    pub kind: String,
+    pub symbol: Option<String>,
+    pub addend: i64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ImportedParameter {
+    pub ordinal: u32,
+    pub name: String,
+    pub type_name: String,
+    pub storage: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ImportedFunctionSignature {
+    pub entry: u64,
+    pub calling_convention: Option<String>,
+    pub return_type: Option<String>,
+    pub parameters: Vec<ImportedParameter>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ImportedDataType {
+    pub name: String,
+    pub kind: String,
+    pub size: u64,
+    pub signed: Option<bool>,
+    pub encoding: Option<String>,
 }
 
 impl fmt::Display for PcodeVarnode {
@@ -273,6 +334,24 @@ fn panic_guard<R>(run: impl FnOnce() -> Result<R>) -> Result<R> {
     })
 }
 
+fn estimate_pcode_bytes(instructions: &[InstructionPcode]) -> usize {
+    instructions.iter().fold(0usize, |total, instruction| {
+        let operations = instruction.operations.iter().fold(0usize, |sum, operation| {
+            let varnodes = operation.inputs.iter().map(|input| {
+                std::mem::size_of::<PcodeVarnode>() + input.space.len()
+            }).sum::<usize>();
+            let output = operation.output.as_ref().map_or(0, |value| {
+                std::mem::size_of::<PcodeVarnode>() + value.space.len()
+            });
+            sum.saturating_add(std::mem::size_of::<PcodeOperation>())
+                .saturating_add(varnodes).saturating_add(output)
+                .saturating_add(operation.space.as_ref().map_or(0, String::len))
+        });
+        total.saturating_add(std::mem::size_of::<InstructionPcode>())
+            .saturating_add(operations)
+    })
+}
+
 impl Program {
     pub fn open(path: &Path, language: Option<&str>) -> Result<Program> {
         Program::open_with(path, language, SymbolLoading::Full)
@@ -327,9 +406,15 @@ impl Program {
             architecture,
             functions: BTreeMap::new(),
             data: BTreeMap::new(),
+            references: BTreeMap::new(),
+            relocations: BTreeMap::new(),
+            imported_types: BTreeMap::new(),
+            data_symbol_types: BTreeMap::new(),
+            function_signatures: BTreeMap::new(),
             string_sections: Vec::new(),
             code_sections: Vec::new(),
             entry: None,
+            pcode_cache: RefCell::new(PcodeCache::default()),
         };
         match symbols {
             SymbolInput::None => {}
@@ -624,6 +709,103 @@ impl Program {
         result.sort_by_key(|entry| entry.address);
         result.dedup_by_key(|entry| entry.address);
         Ok(result)
+    }
+
+    /// Store the prototype recovered by Ghidra's Function/Parameter database.
+    pub fn import_function_signature(&mut self, entry: u64, calling_convention: Option<&str>, return_type: Option<&str>, parameters: Vec<ImportedParameter>) -> Result<()> {
+        if parameters.len() > 1024 { return Err(Error::Lowlevel("function prototype exceeds parameter limit".to_string())); }
+        for value in calling_convention.iter().chain(return_type.iter()) {
+            if value.len() > 1024 || value.contains('\0') { return Err(Error::Lowlevel("invalid function prototype metadata".to_string())); }
+        }
+        if parameters.iter().any(|parameter| parameter.name.len() > 1024 || parameter.type_name.len() > 1024 || parameter.name.contains('\0') || parameter.type_name.contains('\0')) {
+            return Err(Error::Lowlevel("invalid imported parameter metadata".to_string()));
+        }
+        self.function_signatures.insert(entry, ImportedFunctionSignature { entry, calling_convention: calling_convention.map(str::to_string), return_type: return_type.map(str::to_string), parameters });
+        Ok(())
+    }
+
+    pub fn function_signature(&self, entry: u64) -> Option<&ImportedFunctionSignature> { self.function_signatures.get(&entry) }
+
+    /// Add an external program-database cross-reference to the native Program model.
+    pub fn import_reference(&mut self, from: u64, to: u64, kind: &str, is_primary: bool) -> Result<bool> {
+        if kind.is_empty() || kind.len() > 128 || kind.contains('\0') { return Err(Error::Lowlevel("invalid reference kind".to_string())); }
+        let reference = ProgramReference { from, to, kind: kind.to_string(), is_primary };
+        let entries = self.references.entry(from).or_default();
+        if entries.contains(&reference) { return Ok(false); }
+        entries.push(reference);
+        entries.sort();
+        Ok(true)
+    }
+
+    pub fn references_from(&self, address: u64) -> &[ProgramReference] {
+        self.references.get(&address).map(Vec::as_slice).unwrap_or(&[])
+    }
+
+    /// Preserve relocation semantics in the Program model. Applying machine-specific
+    /// relocation arithmetic to raw bytes is deliberately handled by the loader layer.
+    pub fn import_relocation(&mut self, address: u64, kind: &str, symbol: Option<&str>, addend: i64) -> Result<()> {
+        if kind.is_empty() || kind.len() > 128 || kind.contains('\0') { return Err(Error::Lowlevel("invalid relocation kind".to_string())); }
+        self.relocations.insert(address, ProgramRelocation { address, kind: kind.to_string(), symbol: symbol.map(str::to_string), addend });
+        Ok(())
+    }
+
+    pub fn relocations(&self) -> impl Iterator<Item = &ProgramRelocation> { self.relocations.values() }
+
+    /// Keep imported datatype definitions available to later type-graph binding.
+    pub fn import_data_type(&mut self, name: &str, kind: &str, size: u64, signed: Option<bool>, encoding: Option<&str>) -> Result<()> {
+        if name.is_empty() || name.len() > 1024 || name.contains('\0') || kind.is_empty() || kind.len() > 128 || kind.contains('\0') {
+            return Err(Error::Lowlevel("invalid imported datatype descriptor".to_string()));
+        }
+        if size > 16 * 1024 * 1024 { return Err(Error::Lowlevel("imported datatype exceeds size limit".to_string())); }
+        self.imported_types.insert(name.to_string(), ImportedDataType { name: name.to_string(), kind: kind.to_string(), size, signed, encoding: encoding.map(str::to_string) });
+        Ok(())
+    }
+
+    pub fn imported_data_types(&self) -> impl Iterator<Item = &ImportedDataType> { self.imported_types.values() }
+
+    /// Apply a SLEIGH-defined processor context variable at an address.
+    pub fn import_context_value(&mut self, address: u64, register: &str, value: u64) -> Result<()> {
+        let value = u32::try_from(value).map_err(|_| Error::Lowlevel(format!("context value for {register} exceeds 32 bits")))?;
+        let location = self.code_address(address)?;
+        let shared = self.architecture.context.as_ref().ok_or_else(|| Error::Lowlevel("architecture has no processor context database".to_string()))?;
+        let mut context = shared.lock().map_err(|_| Error::Lowlevel("processor context database lock poisoned".to_string()))?;
+        context.set_variable(register, &location, value)
+    }
+
+    /// Import a sized data symbol from an external program database.
+    pub fn import_data_symbol(&mut self, address: u64, name: &str, size: u64) -> Result<()> {
+        if name.is_empty() || name.len() > 1024 || name.contains('\0') { return Err(Error::Lowlevel("invalid imported data symbol name".to_string())); }
+        if size == 0 || size > 1024 * 1024 { return Err(Error::Lowlevel(format!("unsupported imported data symbol size {size}"))); }
+        if self.data.contains_key(&address) { self.set_data_name(address, name)?; return Ok(()); }
+        self.add_typed_data_symbol(name, None, address, size)
+    }
+
+    /// Import a data symbol and bind its Ghidra datatype name in Program metadata.
+    pub fn import_typed_data_symbol(&mut self, address: u64, name: &str, size: u64, type_name: Option<&str>) -> Result<()> {
+        self.import_data_symbol(address, name, size)?;
+        if let Some(type_name) = type_name {
+            if type_name.is_empty() || type_name.len() > 1024 || type_name.contains('\0') { return Err(Error::Lowlevel("invalid data symbol datatype name".to_string())); }
+            self.data_symbol_types.insert(address, type_name.to_string());
+        }
+        Ok(())
+    }
+
+    pub fn data_symbol_type(&self, address: u64) -> Option<&str> { self.data_symbol_types.get(&address).map(String::as_str) }
+
+    /// Import a code-unit comment into the native decompiler comment database.
+    pub fn import_comment(&mut self, function_entry: u64, address: u64, kind: &str, text: &str) -> Result<bool> {
+        if text.len() > 64 * 1024 || text.contains('\0') { return Err(Error::Lowlevel("invalid imported comment text".to_string())); }
+        let comment_type = match kind.to_ascii_lowercase().as_str() {
+            "plate" | "header" => Comment::HEADER,
+            "pre" | "pre_comment" | "eol" | "end_of_line" => Comment::USER1,
+            "post" | "post_comment" => Comment::USER2,
+            "repeatable" => Comment::USER3,
+            other => return Err(Error::Lowlevel(format!("unsupported comment kind {other}"))),
+        };
+        let function_address = self.code_address(function_entry)?;
+        let comment_address = self.code_address(address)?;
+        let database = self.architecture.commentdb.as_deref_mut().ok_or_else(|| Error::Lowlevel("architecture has no comment database".to_string()))?;
+        Ok(database.add_comment_no_duplicate(comment_type, &function_address, &comment_address, text))
     }
 
     pub fn set_symbol_name(&mut self, address: u64, name: &str) -> Result<()> {
@@ -1113,7 +1295,17 @@ impl Program {
     }
 
     pub fn pcode_range(&self, address: u64, byte_length: u64) -> Result<Vec<InstructionPcode>> {
-        panic_guard(|| {
+        Ok((*self.pcode_range_shared(address, byte_length)?).clone())
+    }
+
+    /// Return a shared translated P-code stream. Repeated analysis passes over
+    /// the same function avoid translating every machine instruction again.
+    pub fn pcode_range_shared(&self, address: u64, byte_length: u64) -> Result<Arc<Vec<InstructionPcode>>> {
+        let key = (address, byte_length);
+        if let Some(cached) = self.pcode_cache.borrow().entries.get(&key).cloned() {
+            return Ok(cached);
+        }
+        let translated = panic_guard(|| {
             let translate = self.architecture.translator()?;
             let mut current = self.code_address(address)?;
             let mut remaining = byte_length;
@@ -1140,12 +1332,30 @@ impl Program {
                 remaining = remaining.saturating_sub(length as u64);
             }
             Ok(instructions)
-        })
+        })?;
+        let translated = Arc::new(translated);
+        let entry_bytes = estimate_pcode_bytes(&translated);
+        if entry_bytes <= MAX_PCODE_CACHE_BYTES {
+            let mut cache = self.pcode_cache.borrow_mut();
+            while cache.estimated_bytes.saturating_add(entry_bytes) > MAX_PCODE_CACHE_BYTES {
+                let Some(old_key) = cache.entries.keys().next().copied() else { break };
+                if let Some(old) = cache.entries.remove(&old_key) {
+                    cache.estimated_bytes = cache.estimated_bytes.saturating_sub(estimate_pcode_bytes(&old));
+                }
+            }
+            cache.estimated_bytes = cache.estimated_bytes.saturating_add(entry_bytes);
+            cache.entries.insert(key, Arc::clone(&translated));
+        }
+        Ok(translated)
     }
 
     pub fn function_pcode(&mut self, address: u64) -> Result<Vec<InstructionPcode>> {
+        Ok((*self.function_pcode_shared(address)?).clone())
+    }
+
+    pub fn function_pcode_shared(&mut self, address: u64) -> Result<Arc<Vec<InstructionPcode>>> {
         let length = self.function_size(address)?;
-        self.pcode_range(address, length)
+        self.pcode_range_shared(address, length)
     }
 
     fn pcode_unguarded(&self, address: u64, instruction_count: usize) -> Result<Vec<InstructionPcode>> {

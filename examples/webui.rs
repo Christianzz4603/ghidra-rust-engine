@@ -8,7 +8,7 @@ use ghidra_decompiler::Program;
 
 type SharedProgram = Arc<Mutex<Option<Program>>>;
 
-const PAGE: &str = r#"<!doctype html>
+const PAGE: &str = r###"<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -50,7 +50,7 @@ async function selectFunction(f){selected=f;renderFunctions();status("Decompilin
 async function renderView(){if(!selected)return;status("Loading "+view+"...");if(view==="decompile"){const d=await api("/api/decompile?address="+selected.address);show(d.code)}else if(view==="assembly"){const d=await api("/api/disassembly?address="+selected.address);show(d.instructions.map(i=>i.address+"  "+i.bytes+"  "+i.mnemonic+" "+i.operands).join("\n")||"No instructions")}else{const d=await api("/api/hex?address="+selected.address);show(d.hex)}status(selected.name+" · "+selected.address)}
 $("#load").onclick=loadBinary;$("#path").addEventListener("keydown",e=>{if(e.key==="Enter")loadBinary()});$("#filter").oninput=renderFunctions;
 document.querySelectorAll(".tab").forEach(b=>b.onclick=async()=>{document.querySelectorAll(".tab").forEach(x=>x.classList.toggle("active",x===b));view=b.dataset.view;try{await renderView()}catch(e){fail(e)}});
-</script></body></html>"#;
+</script></body></html>"###;
 
 fn json_escape(value: &str) -> String {
     let mut out = String::with_capacity(value.len() + 2);
@@ -117,7 +117,7 @@ fn handle(mut stream: TcpStream, state: SharedProgram) -> std::io::Result<()> {
             break;
         }
     }
-    let headers = String::from_utf8_lossy(&request[..header_end]);
+    let headers = String::from_utf8_lossy(&request[..header_end]).into_owned();
     let mut lines = headers.lines();
     let Some(first) = lines.next() else { return Ok(()) };
     let mut first_parts = first.split_whitespace();
@@ -265,4 +265,17 @@ pub fn run(port: u16) -> std::io::Result<()> {
         }
     }
     Ok(())
+}
+
+/// Launch the local web interface. Pass an optional port as the first argument.
+fn main() {
+    let port = std::env::args()
+        .nth(1)
+        .and_then(|value| value.parse::<u16>().ok())
+        .unwrap_or(8080);
+
+    if let Err(error) = run(port) {
+        eprintln!("failed to start web UI on 127.0.0.1:{port}: {error}");
+        std::process::exit(1);
+    }
 }

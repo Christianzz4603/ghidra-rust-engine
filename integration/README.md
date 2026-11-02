@@ -1,0 +1,84 @@
+# Ghidra host integration
+
+This directory contains the first Ghidra-facing adapter for the standalone Rust engine.
+It deliberately keeps Ghidra's Java APIs on the host side and the analysis engine in a
+separate process. That preserves process isolation and avoids loading Rust/native code
+into Ghidra's UI JVM.
+
+## Current adapter: Script Manager bridge
+
+The Java script at ghidra-scripts/DecompileWithRustEngine.java adds a
+"Decompile with Rust Engine" action through Ghidra's Script Manager. It:
+
+1. Reads the active Ghidra program's original executable path and cursor address.
+2. Starts the configured ghidra-rust_cli executable with ProcessBuilder, without a shell.
+3. Redirects output to a temporary file, avoiding pipe-buffer deadlocks on large reports.
+4. Enforces a five-minute timeout and supports Ghidra task cancellation.
+5. Prints pseudocode and reconstruction evidence in the Ghidra script console.
+
+### Install
+
+1. Build the Rust CLI using the repository's all-processors build instructions.
+2. In Ghidra, open Window -> Script Manager -> Manage Script Directories.
+3. Add this repository's integration/ghidra-scripts directory.
+4. Set GHIDRA_RUST_ENGINE to the absolute CLI executable path, or set the JVM property
+   -Dghidra.rust.engine=/absolute/path/to/ghidra-rust_cli.
+5. Open a supported binary, place the cursor in a function, and run DecompileWithRustEngine.
+
+The script passes the numeric offset from Ghidra's current address. The CLI independently
+opens the original executable, so this bridge is intended for programs whose Ghidra image
+base and address mapping still match the original file. It does not yet represent
+database-only programs, memory patches, overlays, imported symbols, Ghidra datatypes,
+relocations applied after loading, or per-program compiler-spec overrides.
+
+## Host protocol roadmap
+
+The Rust side now defines the first versioned JSON-lines protocol in `src/ghidra_host.rs`. It parses `ping`, `open_program`, `decompile`, `cancel` and `shutdown` requests and encodes structured responses. `open_program` snapshots carry language/compiler-spec IDs, endianness, address spaces, memory blocks, functions, symbols and relocations. Memory blocks use hexadecimal bytes and explicit read/write/execute flags.
+
+The parser enforces a 16 MiB frame limit, 8 MiB per-block limit, 64 MiB total memory limit, bounded metadata arrays, non-overlapping memory ranges, and request-ID/version validation. The Java Script Manager adapter still uses the legacy one-shot CLI invocation: it does not yet emit these protocol frames, and the Rust module does not yet run a persistent worker loop or hydrate a `Program` from snapshots. Those are the next integration tasks.
+
+The Java side should provide Ghidra-owned facts through a stable adapter interface:
+
+- program identity, language/compiler-spec IDs, endianness and address spaces;
+- memory blocks and initialized bytes, with explicit permissions and holes;
+- functions, entry points, symbols, external references and relocations;
+- function signatures, parameter storage, calling convention and datatypes;
+- cancellation, progress, timeout, diagnostics and structured pseudocode tokens.
+
+The native/Rust worker should remain out-of-process. Requests need size limits, explicit
+protocol versions, request IDs, bounded queues and cancellation. A persistent worker can
+reuse decoded language state and caches across functions while isolating crashes from Ghidra.
+
+## Upstream architecture mapping
+
+The official Ghidra decompiler Makefile separates reusable decompiler/SLEIGH code from
+its Ghidra-specific host build. The host-only native group includes ghidra_arch,
+inject_ghidra, ghidra_translate, loadimage_ghidra, typegrp_ghidra, database_ghidra,
+ghidra_context, cpool_ghidra, ghidra_process, comment_ghidra, string_ghidra and
+signature_ghidra. The Java DecompInterface and DecompileResults classes coordinate the
+process and decode structured results.
+
+This repository does not copy those adapters wholesale. The script bridge is an initial
+integration point, not full Ghidra host parity. The versioned host protocol and adapter
+subsystems remain implementation work.
+
+
+## Persistent Rust worker (protocol v1)
+
+Build the worker with `cargo build --release --bin ghidra-rust-worker`. Start it as a child process and exchange one JSON object per line over stdin/stdout. The worker supports `ping`, `open_program`, `decompile`, and `shutdown`; malformed requests receive a structured error response. It retains the current program snapshot and lazily initializes/reuses one Rust `Program` per executable memory block. A `decompile` request resolves the function descriptor, registers the function entry, and calls the repository's `PseudocodeDecompiler`.
+
+The current worker decompiles initialized executable memory blocks through the raw-binary architecture path. It does not yet apply Ghidra symbols, relocations, overlays, compiler-spec overrides, data types, register context, external references or injected p-code to the Rust database. Those fields are accepted and validated by the transport, but only the function names/entries and executable bytes currently influence decompilation. Requests are processed serially, so `cancel` reports that concurrent cancellation is not available.
+
+
+## Database hydration pass
+
+`open_program` now initializes one native Rust `Program` database per non-empty memory block (including non-executable blocks), then imports function entries/names, supported data symbols and code-unit comments into those databases before acknowledging the open. The response includes a `hydration` counter object and warnings for individual records that could not be imported. Function decompilation reuses the already hydrated executable block. Namespace-qualified data labels are preserved in imported names.
+
+The snapshot schema also carries relocation records, cross-references, datatype descriptors and processor-context values. These are retained and counted as deferred, not falsely reported as applied: the current engine still needs native relocation processing, xref graph storage, full datatype-graph construction and a Ghidra register-context adapter. The current raw-block model creates independent address-space databases per block, so cross-block references and function bodies spanning blocks are not yet equivalent to Ghidra's unified ProgramDB.
+
+
+### Expanded database metadata import
+
+The native `Program` now has import APIs and per-program tables for cross-references, relocation descriptors and imported datatype descriptors. The worker applies those records to the memory-block Program that owns their source address. SLEIGH context values are applied through the architecture's shared `ContextDatabase` when the named context variable exists. The hydration response distinguishes applied counts from deferred counts and returns record-level warnings.
+
+Important boundary: relocation descriptors are recorded but do not yet rewrite bytes using architecture-specific relocation formulas. Datatype descriptors are retained in the Program metadata registry but are not yet bound into complete recursive `TypeFactory` graphs or applied as symbol types. Each memory block still owns a separate raw Program, so references across blocks are recorded on their source block but are not resolved through a unified global address space. The Java-side exporter/worker launcher is still required to populate this expanded schema from a live Ghidra `Program`.

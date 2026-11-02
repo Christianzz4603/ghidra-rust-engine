@@ -13,6 +13,7 @@ use crate::comment::CommentDatabaseInternal;
 use crate::cpool::ConstantPoolInternal;
 use crate::database::{ATTRIB_VOLATILE, Database};
 use crate::embedded_languages::EMBEDDED_FILES;
+use crate::filemanage::FileManage;
 use crate::error::{Error, Result};
 use crate::globalcontext::{ContextDatabase, ContextInternal};
 use crate::inject_sleigh::PcodeInjectLibrarySleigh;
@@ -364,28 +365,26 @@ impl LanguageRegistry {
     }
 
     fn list_directory(path: &Path) -> Vec<PathBuf> {
-        let mut res: Vec<PathBuf> = match std::fs::read_dir(path) {
-            Ok(entries) => entries
-                .filter_map(|entry| entry.ok().map(|entry| entry.path()))
-                .collect(),
-            Err(_) => Vec::new(),
-        };
-        res.sort();
-        res
+        let mut entries = Vec::new();
+        if FileManage::match_list_dir(
+            &mut entries,
+            "",
+            crate::filemanage::NameMatch::Prefix,
+            path,
+            true,
+        ).is_err() {
+            return Vec::new();
+        }
+        entries.sort();
+        entries
     }
 
     fn scan_directories_with_name(path: &Path, name: &str, depth: i32, res: &mut Vec<PathBuf>) {
-        if depth == 0 {
+        if depth <= 0 {
             return;
         }
-        for entry in LanguageRegistry::list_directory(path) {
-            if !entry.is_dir() {
-                continue;
-            }
-            if entry.file_name().is_some_and(|file| file == name) {
-                res.push(entry.clone());
-            }
-            LanguageRegistry::scan_directories_with_name(&entry, name, depth - 1, res);
+        if let Ok(found) = FileManage::scan_directory_recursive(name, path, depth as usize) {
+            res.extend(found);
         }
     }
 

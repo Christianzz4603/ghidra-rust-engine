@@ -138,7 +138,7 @@ impl<'a> BinaryIntelligence<'a> {
                     address: f.address,
                     name: f.name.clone(),
                     stage: "function analysis".into(),
-                    message: error.explain(),
+                    message: error.explain().to_string(),
                 });
             }
         }
@@ -201,7 +201,7 @@ impl<'a> BinaryIntelligence<'a> {
             return Ok(());
         }
         let ins = self.program.disassemble_range(f.address, n)?;
-        let pc = self.program.function_pcode(f.address)?;
+        let pc = self.program.function_pcode_shared(f.address)?;
         let d = flow(&pc);
         r.prototypes.push(FunctionPrototype{address:f.address,name:f.name.clone(),return_size_evidence:Vec::new(),parameter_registers:Vec::new(),confidence:Confidence::Heuristic,notes:vec![format!("Observed storage widths: {:?}. Return type, calling convention, and parameter recovery are not implemented; no prototype is asserted.",d.type_evidence.iter().map(|x|x.storage_size).collect::<Vec<_>>())]});
         r.data_flow.push(d);
@@ -216,8 +216,8 @@ impl<'a> BinaryIntelligence<'a> {
                 confidence: Confidence::Confirmed,
             });
         }
-        for i in pc {
-            for p in i.operations {
+        for i in pc.iter() {
+            for p in &i.operations {
                 if let Some(v) = p.inputs.get(1).filter(|v| v.space == "const") {
                     let k = match p.opcode {
                         OpCode::Load => Some(ReferenceKind::Read),
@@ -246,9 +246,9 @@ impl<'a> BinaryIntelligence<'a> {
             self.program.disassemble_range(f.address, n)?
         };
         let p = if n == 0 {
-            Vec::new()
+            std::sync::Arc::new(Vec::new())
         } else {
-            self.program.function_pcode(f.address)?
+            self.program.function_pcode_shared(f.address)?
         };
         Ok(fp(f, &i, &p))
     }

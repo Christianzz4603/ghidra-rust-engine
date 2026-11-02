@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 
 use ghidra_decompiler::ifacedecomp::{mainloop, register_all_commands, register_console_commands};
+use ghidra_decompiler::{DecompilerReconstructor, Program};
 use ghidra_decompiler::interface::{IfaceError, IfaceStatus, new_out_stream, out_write};
 use ghidra_decompiler::sleigh_arch::{add_global_language_directory, scan_global_sleigh_directories};
 
@@ -148,10 +149,11 @@ fn main() -> ExitCode {
         .is_some_and(|arg| arg == "--help" || arg == "-h" || arg == "help")
     {
         println!("Ghidra Rust Engine {}", version());
-        println!("Usage: ghidra-rust_cli [--version | --help | setup | update | web [--port=PORT]]");
+        println!("Usage: ghidra-rust_cli [--version | --help | setup | update | web [--port=PORT] | reconstruct <binary> <address>]");
         println!();
         println!("Run without arguments to open the interactive decompiler console.");
         println!("Run `ghidra-rust_cli web` to launch the built-in browser workspace.");
+        println!("Run `ghidra-rust_cli reconstruct <binary> <address>` for pseudocode and reconstruction evidence.");
         println!("Inside the console: open <binary>, then decompile <function>.");
         println!("Decompiled files are saved in an output/ folder beside this executable by default.");
         println!("Set GHIDRA_DECOMPILER_OUTPUT_DIR to choose another output folder.");
@@ -176,6 +178,44 @@ fn main() -> ExitCode {
     if args.get(1).is_some_and(|arg| arg == "web" || arg == "--web") {
         let port = args.iter().skip(2).find_map(|arg| arg.strip_prefix("--port=").and_then(|v| v.parse::<u16>().ok())).unwrap_or(8080);
         return match webui::run(port) { Ok(()) => ExitCode::SUCCESS, Err(err) => { eprintln!("Web UI failed: {err}"); ExitCode::from(1) } };
+    }
+    if args.get(1).is_some_and(|arg| arg == "reconstruct") {
+        let (Some(binary), Some(raw_address)) = (args.get(2), args.get(3)) else {
+            eprintln!("Usage: ghidra-rust_cli reconstruct <binary> <address>");
+            return ExitCode::from(2);
+        };
+        let address = raw_address.strip_prefix("0x")
+            .map(|value| u64::from_str_radix(value, 16))
+            .unwrap_or_else(|| raw_address.parse::<u64>());
+        let address = match address {
+            Ok(value) => value,
+            Err(_) => {
+                eprintln!("Invalid address: {raw_address}");
+                return ExitCode::from(2);
+            }
+        };
+        let mut program = match Program::open(Path::new(binary), None) {
+            Ok(program) => program,
+            Err(error) => {
+                eprintln!("Could not open binary: {}", error.explain());
+                return ExitCode::from(1);
+            }
+        };
+        let reconstruction = match DecompilerReconstructor.reconstruct_function(&mut program, address) {
+            Ok(result) => result,
+            Err(error) => {
+                eprintln!("Reconstruction failed: {}", error.explain());
+                return ExitCode::from(1);
+            }
+        };
+        println!("Function: {} at {:#x}", reconstruction.function.name, reconstruction.function.address);
+        if let Some(declaration) = &reconstruction.decompiler_declaration {
+            println!("Recovered declaration: {declaration}");
+        }
+        println!("\\n===== Decompiled pseudocode =====\\n{}", reconstruction.pseudocode);
+        println!("\\n===== Reconstruction evidence =====");
+        println!("{:#?}", reconstruction.result);
+        return ExitCode::SUCCESS;
     }
     if args.get(1).is_some_and(|arg| arg == "update") {
         print_update_status();

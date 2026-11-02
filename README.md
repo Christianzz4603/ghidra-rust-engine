@@ -106,6 +106,72 @@ let _ = report;
 
 `AnalysisOptions` can independently enable function discovery, disassembly, decompilation, string extraction, data symbols, and call-graph construction. Use `AnalysisSelection::with_function_addresses`, `with_address_range`, and `with_max_functions` with `AnalysisEngine::analyze_selected` to restrict a run to chosen functions or an address window. `AnalysisEngine::analyze_function(address, options)` analyzes one function. `analyze_function_by_name(name, options)` provides the same operation by symbol name. `Program::pcode_range(address, byte_length)` returns P-code operations across complete instructions until the requested byte range is covered, and `function_pcode(address)` extracts P-code for a known function. `AnalysisSelection::validate()` rejects empty or reversed address windows before analysis starts. `open_with` and `from_image_with` expose loader-only versus full symbol loading, while `from_raw_bytes` supports headerless code. `Program::read_memory` and `read_code` expose bytes; `register_info`, `entry_point`, `find_function_by_name`, `find_function_at`, and `ensure_function_at` provide direct program inspection and control. Use `AnalysisOptions::low_memory()` on constrained phones: it keeps function discovery and decompilation enabled, but skips the separate disassembly pass (which decodes the same bodies again) and skips optional strings, data-symbol, and call-graph collections. The default profile keeps every pass enabled. `AnalysisEngine::from_image` accepts in-memory executable bytes, and `AnalysisEngine::from_program` wraps an already configured `Program`. Function results are emitted one at a time, so applications do not need to retain every function's pseudocode in memory.
 
+## Public API index
+
+This section is a quick map of the crate's public Rust API. The examples and names below describe the current exported surface on this branch; the detailed guides above and below remain the source for workflows and limitations.
+
+### Core program API — `program`
+
+| API | Purpose |
+| --- | --- |
+| `Program::open`, `open_with` | Load an ELF, PE, or Mach-O file, optionally controlling symbol loading. |
+| `Program::from_image`, `from_image_with` | Load executable bytes already held in memory. |
+| `Program::from_raw_bytes` | Create a program from headerless code and an explicit language/base address. |
+| `functions`, `find_function_by_name`, `find_function_at`, `ensure_function_at` | Enumerate, find, and create function entries. |
+| `read_memory`, `read_code`, `entry_point`, `register_info`, `language_id`, `architecture` | Inspect program memory, entry point, register metadata, language, and the underlying architecture. |
+| `disassemble`, `disassemble_range`, `disassemble_range_recovering`, `scan_code_sections` | Decode instructions and scan executable regions while retaining undecodable-gap information. |
+| `pcode`, `pcode_range`, `pcode_range_shared`, `function_pcode`, `function_pcode_shared` | Retrieve instruction-level or function-level P-code. The `*_shared` variants return shared `Arc`-backed results. |
+| `decompile`, `call_graph` | Decompile a function and construct direct-call edges. |
+| `data_symbols`, `strings`, `set_symbol_name`, `set_function_name`, `set_data_name`, `is_code_address` | Inspect data/string symbols and update symbol names. |
+| `set_print_language`, `code_sections`, `function_size`, `description` | Configure output language and inspect code/layout metadata. |
+
+Important data types include `FunctionEntry`, `FunctionSource`, `Instruction`, `InstructionPcode`, `PcodeOperation`, `PcodeVarnode`, `CallEdge`, `DataEntry`, `StringEntry`, `DisassemblyReport`, `DisassemblyGap`, and `CodeScanSummary`. `SymbolLoading` selects loader-compatible or expanded symbol loading.
+
+### Whole-program analysis — `analysis`
+
+- `AnalysisEngine::open`, `from_image`, `open_with`, `from_image_with`, `from_raw_bytes`, and `from_program` create an analysis session.
+- `analyze` streams `AnalysisEvent` callbacks and returns an `AnalysisReport`.
+- `analyze_full` runs the full report pipeline; `analyze_selected` applies an `AnalysisSelection`.
+- `analyze_function` and `analyze_function_by_name` analyze one function.
+- `AnalysisOptions` controls the enabled analysis passes. `AnalysisOptions::low_memory()` disables optional collections and the separate disassembly pass for constrained devices.
+- `AnalysisSelection::with_function_addresses`, `with_address_range`, and `with_max_functions` limit a run; `validate` checks the selection before execution.
+
+Key result/event types: `FunctionAnalysis`, `AnalysisEvent`, `AnalysisReport`, and `FullAnalysisReport`.
+
+### Intelligence and cross-references — `intelligence`
+
+`BinaryIntelligence::new` creates the analyzer. `analyze_all` and `analyze_one` produce `IntelligenceReport`; `references_to` and `references_from` query cross-references; `similar_functions` searches function fingerprints. Reports expose control-flow graphs (`ControlFlowGraph`, `BasicBlock`, `FlowEdge`), references (`CrossReference`, `ReferenceKind`), confidence levels, data-flow summaries, function fingerprints, prototype evidence, type evidence, and per-function failures. Prototype and type findings are evidence-based estimates, not guaranteed source signatures.
+
+### Pseudocode and reconstruction
+
+| Module / type | Main entry points | What it returns |
+| --- | --- | --- |
+| `pseudocode::PseudocodeDecompiler` | `new`, `options`, `decompile`, `decompile_all` | `FunctionPseudocode` or a `DecompileBatch` with per-function failures, numbered lines, and truncation metadata. |
+| `reconstruction::DecompilerReconstructor` | `reconstruct_function`, `reconstruct_all` | `FunctionReconstruction` evidence including structured regions, variable lifetimes, parameter/return evidence, expression nodes, and compiler-pattern candidates. |
+| `microcode::MicrocodeAnalyzer` | `analyze`, `analyze_instructions` | `MicrocodeReport` with operation locations, definitions, uses, def-use edges, constants, and conservative unused-result findings. |
+| `type_recovery::TypeRecoveryAnalyzer` | `analyze` | `TypeRecoveryReport` and evidence for boolean, signed/unsigned integer, floating-point, and pointer candidates. |
+| `ssa::SsaAnalyzer` | `analyze(cfg, pcode)` | CFG-aware SSA report with versions, definitions, uses, and phi nodes. This is an evolving foundation; memory spaces are not yet promoted into SSA. |
+
+### ABI argument-location helpers — `abi`
+
+`Abi` currently identifies `SystemVx86_64`, `WindowsX64`, and `Aapcs64`. Use `AbiProfile::for_abi` to obtain a profile, `AbiProfile::allocator` to create an `AbiArgumentAllocator`, and `AbiArgumentAllocator::next(AbiValueClass, size)` to classify a value's candidate register/stack location. `AbiLocation` describes the resulting location. This is argument-location infrastructure, not yet complete aggregate classification or automatic function-prototype recovery for every ABI edge case.
+
+### Signature and metadata services
+
+- **FLIRT (`flirt`)**: `FlirtAnalyzer::load_dir` loads a reusable signature corpus; `signature_count` reports its size; `analyze(program, options)` returns a `FlirtReport` of `FlirtMatch` candidates. `FlirtOptions` controls matching behavior.
+- **Lumina-compatible lookup (`lumina`)**: `LuminaClient::new` configures a metadata service endpoint; `search_functions(query, limit)` searches function names; `function_detail(key, binary_md5)` retrieves a record. The client is read-only and treats remote metadata as evidence, not ground truth.
+
+### Android and Kotlin metadata APIs
+
+- **DEX/APK (`dex`)**: `DexFile::open` / `parse` read DEX data; accessors expose `version`, `strings`, `types`, `classes`, and `methods`; `smali` renders Smali text. `Apk::open` / `parse` read APK containers; `smali` returns class outputs and `write_smali` writes them to a directory. Main types: `Apk`, `DexFile`, `DexClass`, and `DexMethod`.
+- **Kotlin built-ins (`kotlin`)**: `KotlinBuiltins::open` / `parse` read metadata; `version`, `declarations`, `classes`, `functions`, `properties`, and `raw_proto` expose parsed information; `decompile` renders a readable representation and `write_kotlin` writes it to a file. Main types: `KotlinBuiltins`, `KotlinDeclaration`, and `KotlinDeclarationKind`.
+
+### Root-level exports
+
+The crate re-exports the commonly used types from `ghidra_decompiler`, including `Program`, `AnalysisEngine`, `AnalysisOptions`, `AnalysisSelection`, `AnalysisEvent`, `AnalysisReport`, `Error`, `Result`, the intelligence/reconstruction/microcode/type-recovery/pseudocode/FLIRT/ABI/SSA types, `LuminaClient`, and the DEX/Kotlin types. Lower-level implementation APIs remain available through their modules, such as `ghidra_decompiler::program::Program` or `ghidra_decompiler::ssa::SsaAnalyzer`.
+
+The library is built as Rust `rlib`, `cdylib`, and `staticlib` artifacts. Those crate formats do not by themselves constitute a documented C ABI or JNI binding; applications needing a stable foreign-language interface should add an explicit wrapper layer.
+
 ### Build profiles
 
 The default Cargo feature set is `desktop`, preserving the existing x86, ARM, AArch64, MIPS, PowerPC, and RISC-V support. For Android/ARM devices, build only the ARM language specifications:
@@ -349,3 +415,83 @@ On Android/Termux, download the ARM64 executable, then run `chmod +x ghidra-rust
 ### Release performance
 
 Release builds use `opt-level=3`, fat LTO, and one codegen unit for cross-crate optimization. This increases build time and avoids `target-cpu=native` so distributed binaries remain portable. Analysis hot paths use allocation-free assembly sinks during code coverage sweeps, pre-index call edges, hash-based internal aggregation with sorted output, and pre-sized instruction buffers.
+
+
+## Interactive pseudocode API
+
+The `pseudocode` module provides a cross-platform, presentation-oriented API for applications that need Hex-Rays-style function pseudocode. It is an independent Rust implementation layer over this repository's native decompiler, not a copy of Hex-Rays source or a claim of binary compatibility.
+
+```rust
+use ghidra_decompiler::{Program, PseudocodeDecompiler, PseudocodeOptions};
+use std::path::Path;
+
+let mut program = Program::open(Path::new("libexample.so"), None)?;
+let decompiler = PseudocodeDecompiler::new(PseudocodeOptions::default());
+let batch = decompiler.decompile_all(&mut program)?;
+
+for function in batch.functions {
+    println!("{} @ {:#x}", function.name, function.address);
+    println!("{}", function.source);
+}
+println!("{} succeeded, {} failed", batch.succeeded(), batch.failed());
+# Ok::<(), ghidra_decompiler::Error>(())
+```
+
+The API returns per-function pseudocode, numbered display lines, symbol metadata, truncation status, and per-function failures so a UI can keep rendering when an individual function cannot be decompiled. Options can bound the number of functions and output bytes for memory-constrained devices. The initial layer uses the existing Ghidra-derived analysis/decompilation backend; higher-level type recovery, structured variable naming, interactive microcode editing, and richer source mapping remain incremental work.
+
+
+## Independent Hex-Rays-style decompiler work
+
+The `hex-rays-style-decompiler` branch is an independent implementation effort.
+It does not copy Hex-Rays source code, private formats, or proprietary algorithms.
+The goal is capability parity through independently implemented analysis passes,
+with compatibility and correctness measured against public binaries and test
+corpora rather than claims of identical internals.
+
+Current foundations on this branch:
+
+- A cross-platform pseudocode API with bounded batch processing and per-function
+  failures (`PseudocodeDecompiler`).
+- A microcode data-flow layer that records P-code definitions, uses, linear
+  def-use edges, constant inputs, and conservatively identified unused pure
+  results (`MicrocodeAnalyzer`).
+- The microcode report explicitly models a linear pass. It is not SSA and does
+  not yet solve CFG-wide reaching definitions, loops, or phi nodes.
+
+The next engineering layers are CFG-aware SSA construction, type propagation,
+stack/register variable recovery, calling-convention and prototype inference,
+expression simplification, structured control-flow recovery, and regression
+corpora across x86/x64, ARM/ARM64, and other supported architectures.
+
+
+### High-level reconstruction API
+
+The `reconstruction` module adds an evidence-oriented reconstruction pass:
+
+- Dominator analysis, back-edge loop candidates, conditional regions, and switch-dispatch candidates.
+- P-code storage lifetimes with definition/use positions and basic-block boundary estimates.
+- Incoming register/stack read-before-write evidence for candidate parameters.
+- Return-operation evidence, without inventing an ABI return register or type.
+- Operation expression DAGs with constant, variable, and expression operands.
+- The backend's native C-like pseudocode and a best-effort extracted function declaration, exposing its existing type and control-flow reconstruction rather than pretending the heuristic layer can recover erased source facts.
+- Compiler-pattern candidates for frame setup/teardown, stack protection, PIC addressing,
+  tail transfers, thunks, multiply-accumulate, compare widening, and bit masks.
+
+Example API: `DecompilerReconstructor.reconstruct_function(&mut program, entry_address)`.
+
+These findings are deliberately marked heuristic where machine code does not prove the
+original source construct. In particular, source variable lifetimes, exact parameter
+lists, return types, and high-level constructs can be unrecoverable after optimization.
+
+
+### CLI high-level reconstruction
+
+Build the `decomp` example, then run:
+
+```sh
+ghidra-rust_cli reconstruct ./program 0x401000
+```
+
+This prints the backend's pseudocode and its structured reconstruction evidence:
+control-flow regions, variable live ranges, candidate arguments, return evidence,
+expression DAGs, and compiler-pattern candidates.
