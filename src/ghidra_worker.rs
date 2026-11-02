@@ -10,14 +10,50 @@ use serde_json::json;
 
 use crate::ghidra_host::{
     read_frame, write_frame, FunctionDescriptor, HostCommand, HostRequest, HostResponse,
-    MemoryBlock, ProgramSnapshot,
+    ProgramSnapshot,
 };
 use crate::{Program, PseudocodeDecompiler};
 
 struct LoadedBlock {
     start: u64,
     end: u64,
+    executable: bool,
     program: Program,
+}
+
+#[derive(Default)]
+struct HydrationCounters {
+    memory_blocks_loaded: usize,
+    executable_blocks_loaded: usize,
+    functions_applied: usize,
+    function_symbols_applied: usize,
+    data_symbols_applied: usize,
+    comments_applied: usize,
+    duplicate_comments: usize,
+    relocations_deferred: usize,
+    references_deferred: usize,
+    data_types_deferred: usize,
+    context_values_deferred: usize,
+    symbols_outside_loaded_blocks: usize,
+}
+
+impl HydrationCounters {
+    fn to_json(&self) -> serde_json::Value {
+        json!({
+            "memory_blocks_loaded": self.memory_blocks_loaded,
+            "executable_blocks_loaded": self.executable_blocks_loaded,
+            "functions_applied": self.functions_applied,
+            "function_symbols_applied": self.function_symbols_applied,
+            "data_symbols_applied": self.data_symbols_applied,
+            "comments_applied": self.comments_applied,
+            "duplicate_comments": self.duplicate_comments,
+            "relocations_deferred": self.relocations_deferred,
+            "references_deferred": self.references_deferred,
+            "data_types_deferred": self.data_types_deferred,
+            "context_values_deferred": self.context_values_deferred,
+            "symbols_outside_loaded_blocks": self.symbols_outside_loaded_blocks,
+        })
+    }
 }
 
 /// Stateful worker. A program snapshot is retained across requests and each
@@ -25,12 +61,13 @@ struct LoadedBlock {
 pub struct GhidraWorker {
     snapshot: Option<ProgramSnapshot>,
     loaded_blocks: Vec<LoadedBlock>,
+    hydration_report: serde_json::Value,
     shutdown: bool,
 }
 
 impl Default for GhidraWorker {
     fn default() -> Self {
-        Self { snapshot: None, loaded_blocks: Vec::new(), shutdown: false }
+        Self { snapshot: None, loaded_blocks: Vec::new(), hydration_report: json!({}), shutdown: false }
     }
 }
 
@@ -65,27 +102,88 @@ impl GhidraWorker {
     }
 
     fn open_program(&mut self, snapshot: ProgramSnapshot) -> Result<serde_json::Value, String> {
-        let executable_blocks = snapshot.memory_blocks.iter()
-            .filter(|block| block.executable && !block.bytes.is_empty()).count();
-        if executable_blocks == 0 {
+        if snapshot.memory_blocks.is_empty() {
+            return Err("program snapshot contains no initialized memory blocks".into());
+        }
+        let mut loaded_blocks = Vec::with_capacity(snapshot.memory_blocks.len());
+        let mut report = HydrationCounters::default();
+        let mut failures = Vec::new();
+        for block in &snapshot.memory_blocks {
+            if block.bytes.is_empty() { continue; }
+            let end = block.start.checked_add(block.bytes.len() as u64)
+                .ok_or_else(|| "memory block address range overflow".to_string())?;
+            let mut program = match Program::from_raw_bytes(block.bytes.clone(), &snapshot.language_id, block.start) {
+                Ok(program) => program,
+                Err(error) => {
+                    failures.push(format!("memory block {:#x}: {error}", block.start));
+                    continue;
+                }
+            };
+            report.memory_blocks_loaded += 1;
+            if block.executable { report.executable_blocks_loaded += 1; }
+
+            for function in snapshot.functions.iter().filter(|item| item.entry >= block.start && item.entry < end) {
+                match program.ensure_function_at(function.entry, Some(&function.name)) {
+                    Ok(_) => report.functions_applied += 1,
+                    Err(error) => failures.push(format!("function {} at {:#x}: {error}", function.name, function.entry)),
+                }
+            }
+            for symbol in snapshot.symbols.iter().filter(|item| item.address >= block.start && item.address < end) {
+                let is_function = matches!(symbol.kind.to_ascii_lowercase().as_str(), "function" | "func" | "code")
+                    || snapshot.functions.iter().any(|function| function.entry == symbol.address);
+                if is_function {
+                    let function_name = snapshot.functions.iter().find(|function| function.entry == symbol.address)
+                        .map(|function| function.name.as_str()).unwrap_or(&symbol.name);
+                    match program.ensure_function_at(symbol.address, Some(function_name)) {
+                        Ok(_) => report.function_symbols_applied += 1,
+                        Err(error) => failures.push(format!("function symbol {} at {:#x}: {error}", symbol.name, symbol.address)),
+                    }
+                } else {
+                    let qualified_name = symbol.namespace.as_ref().map(|namespace| format!("{namespace}::{}", symbol.name))
+                        .unwrap_or_else(|| symbol.name.clone());
+                    match program.import_data_symbol(symbol.address, &qualified_name, symbol.size) {
+                        Ok(()) => report.data_symbols_applied += 1,
+                        Err(error) => failures.push(format!("data symbol {} at {:#x}: {error}", symbol.name, symbol.address)),
+                    }
+                }
+            }
+            for comment in snapshot.comments.iter().filter(|item| item.address >= block.start && item.address < end) {
+                let function_entry = comment.function_entry.unwrap_or(comment.address);
+                match program.import_comment(function_entry, comment.address, &comment.kind, &comment.text) {
+                    Ok(inserted) => { if inserted { report.comments_applied += 1; } else { report.duplicate_comments += 1; } },
+                    Err(error) => failures.push(format!("comment at {:#x}: {error}", comment.address)),
+                }
+            }
+            loaded_blocks.push(LoadedBlock { start: block.start, end, executable: block.executable, program });
+        }
+        if !snapshot.memory_blocks.iter().any(|block| block.executable && !block.bytes.is_empty()) {
             return Err("program snapshot contains no initialized executable memory blocks".into());
         }
-        let function_count = snapshot.functions.len();
-        let symbol_count = snapshot.symbols.len();
-        let relocation_count = snapshot.relocations.len();
+        if !loaded_blocks.iter().any(|block| block.executable) {
+            return Err(format!("no executable memory blocks could be initialized: {}", failures.join("; ")));
+        }
+        report.relocations_deferred = snapshot.relocations.len();
+        report.references_deferred = snapshot.references.len();
+        report.data_types_deferred = snapshot.data_types.len();
+        report.context_values_deferred = snapshot.context_values.len();
+        report.symbols_outside_loaded_blocks = snapshot.symbols.iter().filter(|symbol| {
+            !loaded_blocks.iter().any(|block| symbol.address >= block.start && symbol.address < block.end)
+        }).count();
         let name = snapshot.name.clone();
         let language_id = snapshot.language_id.clone();
+        let compiler_spec_id = snapshot.compiler_spec_id.clone();
+        let summary = report.to_json();
         self.snapshot = Some(snapshot);
-        self.loaded_blocks.clear();
+        self.loaded_blocks = loaded_blocks;
+        self.hydration_report = summary.clone();
         Ok(json!({
             "status": "opened",
             "name": name,
             "language_id": language_id,
-            "executable_blocks": executable_blocks,
-            "functions": function_count,
-            "symbols_received": symbol_count,
-            "relocations_received": relocation_count,
-            "note": "memory and function metadata are retained; symbols and relocations are currently transport metadata, not yet applied to the Rust Program database",
+            "compiler_spec_id": compiler_spec_id,
+            "hydration": summary,
+            "hydration_warnings": failures,
+            "metadata_policy": "supported records are applied to native per-memory-block Program databases; relocations, references, datatype graphs and processor context are retained in the snapshot but deferred until their native database adapters are implemented",
         }))
     }
 
@@ -96,23 +194,8 @@ impl GhidraWorker {
             .find(|function| function.entry == address)
             .cloned()
             .ok_or_else(|| format!("function {address:#x} is not present in the host snapshot"))?;
-        let block_index = snapshot.memory_blocks.iter().position(|block: &MemoryBlock| {
-            if !block.executable || block.bytes.is_empty() { return false; }
-            let end = block.start.saturating_add(block.bytes.len() as u64);
-            address >= block.start && address < end
-        }).ok_or_else(|| format!("function {address:#x} is not inside an initialized executable memory block"))?;
-        let block = &snapshot.memory_blocks[block_index];
-        let end = block.start.checked_add(block.bytes.len() as u64)
-            .ok_or_else(|| "executable memory range overflow".to_string())?;
-        let loaded_index = match self.loaded_blocks.iter().position(|loaded| loaded.start == block.start && loaded.end == end) {
-            Some(index) => index,
-            None => {
-                let program = Program::from_raw_bytes(block.bytes.clone(), &snapshot.language_id, block.start)
-                    .map_err(|error| format!("could not initialize Rust architecture for {}: {error}", snapshot.language_id))?;
-                self.loaded_blocks.push(LoadedBlock { start: block.start, end, program });
-                self.loaded_blocks.len() - 1
-            }
-        };
+        let loaded_index = self.loaded_blocks.iter().position(|loaded| loaded.executable && address >= loaded.start && address < loaded.end)
+            .ok_or_else(|| format!("function {address:#x} is not inside an initialized executable memory block"))?;
         let loaded = &mut self.loaded_blocks[loaded_index];
         loaded.program.ensure_function_at(address, Some(&function.name))
             .map_err(|error| format!("could not register function {} at {address:#x}: {error}", function.name))?;
@@ -132,6 +215,7 @@ impl GhidraWorker {
             "truncated": pseudocode.truncated,
             "body_size_hint": function.body_size,
             "source_of_memory": "Ghidra memory snapshot",
+            "database_hydration": self.hydration_report,
         }))
     }
 }

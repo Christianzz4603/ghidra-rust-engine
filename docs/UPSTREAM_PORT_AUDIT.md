@@ -68,3 +68,8 @@ The linear data-flow feature is not CFG-sensitive SSA; collisions remain possibl
 Ghidra is Apache-2.0 licensed. Preserve applicable upstream notices and attribution
 when translating or adapting source. Keep independent implementations distinguishable
 from mechanically translated code and do not describe an unimplemented subsystem as complete.
+
+
+### Database hydration status (worker)
+
+The worker's `open_program` now eagerly creates a native `Program` for every non-empty snapshot memory block and imports function symbols, supported data symbols and comments into the Rust symbol/comment databases. Hydration counters and per-record warnings are returned to the host. Decompilation reuses these pre-hydrated executable-block instances. The transport now accepts datatype descriptors, references and processor-context records in addition to relocations. Those four metadata classes are explicitly deferred and remain available in the retained snapshot; they are not yet installed into native engine structures. The per-block raw loader is not a unified Ghidra address-space image, so cross-block references, relocations and functions spanning blocks remain unresolved.
