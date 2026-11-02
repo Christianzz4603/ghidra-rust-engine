@@ -246,7 +246,7 @@ impl<'a> BinaryIntelligence<'a> {
             self.program.disassemble_range(f.address, n)?
         };
         let p = if n == 0 {
-            Vec::new()
+            std::sync::Arc::new(Vec::new())
         } else {
             self.program.function_pcode_shared(f.address)?
         };

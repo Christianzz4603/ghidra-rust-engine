@@ -170,6 +170,7 @@ pub struct CodeScanSummary {
     pub gap_count: u64,
 }
 
+#[derive(Clone, Debug)]
 pub struct InstructionPcode {
     pub address: u64,
     pub length: usize,
