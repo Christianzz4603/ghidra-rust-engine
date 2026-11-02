@@ -34,13 +34,13 @@ impl SsaAnalyzer {
   let mut outs=ins.clone(); let limit=cfg.blocks.len().saturating_mul(vars.len().saturating_add(1)).saturating_mul(4).max(8); let mut iterations=0;let mut converged=false;
   for _ in 0..limit {iterations+=1;let mut changed=false;for b in &cfg.blocks {
    let ps=preds.get(&b.start).cloned().unwrap_or_default();let mut incoming=BTreeMap::new();
-   for v in &vars {let versions:BTreeSet<_>=ps.iter().filter_map(|p|outs.get(p).and_then(|s|s.get(v)).copied()).collect();let ver=if versions.len()>1{phi_ids[&(b.start,v.clone())]}else{versions.iter().next().copied().unwrap_or(zero)};incoming.insert(v.clone(),ver);}
+   for v in &vars {let mut versions:BTreeSet<_>=ps.iter().filter_map(|p|outs.get(p).and_then(|s|s.get(v)).copied()).collect();if b.start==cfg.function{versions.insert(zero);}let ver=if versions.len()>1{phi_ids[&(b.start,v.clone())]}else{versions.iter().next().copied().unwrap_or(zero)};incoming.insert(v.clone(),ver);}
    let mut outgoing=incoming.clone();if let Some(ops)=ops_by_block.get(&b.start){for op in ops {if let Some(v)=&op.operation.output {if v.space!="const" {if let Some(id)=def_ids.get(&(b.start,op.address,op.index)){outgoing.insert(v.into(),*id);}}}}}
    if ins.get(&b.start)!=Some(&incoming){ins.insert(b.start,incoming);changed=true;}if outs.get(&b.start)!=Some(&outgoing){outs.insert(b.start,outgoing);changed=true;}
   }if !changed{converged=true;break;}}
   let mut report=SsaReport{variable_count:vars.len(),definition_count:def_ids.len(),iterations,converged,..Default::default()};
   for b in &cfg.blocks {let ps=preds.get(&b.start).cloned().unwrap_or_default();let mut phis=Vec::new();
-   for v in &vars {let incoming:Vec<_>=ps.iter().map(|p|(*p,outs.get(p).and_then(|s|s.get(v)).copied().unwrap_or(zero))).collect();let distinct:BTreeSet<_>=incoming.iter().map(|x|x.1).collect();if distinct.len()>1{phis.push(SsaPhi{variable:v.clone(),version:phi_ids[&(b.start,v.clone())],incoming});}}
+   for v in &vars {let mut incoming:Vec<_>=ps.iter().map(|p|(*p,outs.get(p).and_then(|s|s.get(v)).copied().unwrap_or(zero))).collect();if b.start==cfg.function{incoming.push((cfg.function,zero));}let distinct:BTreeSet<_>=incoming.iter().map(|x|x.1).collect();if distinct.len()>1{phis.push(SsaPhi{variable:v.clone(),version:phi_ids[&(b.start,v.clone())],incoming});}}
    report.phi_count+=phis.len();let mut state=ins.get(&b.start).cloned().unwrap_or_default();let mut operations=Vec::new();
    if let Some(block_ops)=ops_by_block.get(&b.start){for op in block_ops {let uses=op.operation.inputs.iter().enumerate().filter_map(|(input_index,v)|{if v.space=="const"{return None;}let variable=VarnodeIdentity::from(v);Some(SsaUse{version:state.get(&variable).copied().unwrap_or(zero),variable,input_index})}).collect();
     let definition=op.operation.output.as_ref().and_then(|v|{if v.space=="const"{return None;}let variable=VarnodeIdentity::from(v);let version=def_ids.get(&(b.start,op.address,op.index)).copied()?;state.insert(variable.clone(),version);Some(SsaDefinition{variable,version})});
@@ -48,6 +48,8 @@ impl SsaAnalyzer {
    report.blocks.push(SsaBlock{start:b.start,phis,operations});
   }report
  }
+ #[test]fn entry_loop_keeps_initial_value_in_phi(){let cfg=ControlFlowGraph{function:0x100,blocks:vec![b(0x100,[0x100]),b(0x110,[0x110])],edges:vec![e(0x100,0x110),e(0x110,0x100)]};let pc=vec![InstructionPcode{address:0x100,length:4,operations:vec![op(OpCode::IntAdd,Some(n("register",2)),vec![n("register",1),n("const",1)])]},InstructionPcode{address:0x110,length:4,operations:vec![op(OpCode::Copy,Some(n("register",1)),vec![n("const",3)])]}];let r=SsaAnalyzer.analyze(&cfg,&pc);let entry=r.blocks.iter().find(|x|x.start==0x100).unwrap();assert_eq!(entry.phis.len(),1);assert!(entry.phis[0].incoming.iter().any(|(_,v)|*v==SsaVersion(0)));assert_eq!(entry.operations[0].uses[0].version,entry.phis[0].version);assert!(r.converged);}
+
 }
 #[cfg(test)] mod tests {
  use super::*;use crate::intelligence::{BasicBlock,Confidence,FlowEdge,FlowKind};use crate::opcodes::OpCode;use crate::program::{Instruction,PcodeOperation,PcodeVarnode};
