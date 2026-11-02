@@ -1,0 +1,148 @@
+== CLIPPY REMAINING ==
+src/program.rs:16:31: error: unused import: `CommentDatabase`
+src/program.rs:19:5: error: unused import: `crate::globalcontext::ContextDatabase`
+src/ifacedecomp/printing.rs:963:9: error: variable `decompile_ok` is assigned to, but never used
+src/ifacedecomp/printing.rs:1055:17: error: value assigned to `decompile_ok` is never read
+src/dex.rs:345:4: error: function `smali_type` is never used
+error: could not compile `ghidra-decompiler` (lib) due to 5 previous errors
+error: could not compile `ghidra-decompiler` (lib test) due to 4 previous errors
+== SNIPPETS ==
+-- dex.rs smali_type
+345:fn smali_type(descriptor: &str) -> String {
+460:        assert_eq!(smali_type("Ljava/lang/String;"), "java.lang.String");
+461:        assert_eq!(smali_type("[[I"), "int[][]");
+462:        assert_eq!(smali_type("V"), "void");
+fn smali_type(descriptor: &str) -> String {
+    let dimensions = descriptor.bytes().take_while(|byte| *byte == b'[').count();
+    let base = &descriptor[dimensions..];
+    let name = match base {
+        "V" => "void".to_string(),
+        "Z" => "boolean".to_string(),
+        "B" => "byte".to_string(),
+        "S" => "short".to_string(),
+        "C" => "char".to_string(),
+        "I" => "int".to_string(),
+        "J" => "long".to_string(),
+        "F" => "float".to_string(),
+        "D" => "double".to_string(),
+        value if value.starts_with('L') && value.ends_with(';') => value[1..value.len() - 1].replace('/', "."),
+        value => value.to_string(),
+-- printing.rs decompile_ok
+963:    let mut decompile_ok = 0usize;
+1003:        let mut function_decompile_ok = false;
+1055:                decompile_ok += 1;
+1056:                function_decompile_ok = true;
+1073:            if function_decompile_ok { "ok" } else { "failed" },
+-- object_arch.rs top-level items
+1:use std::io::Read;
+2:use std::sync::atomic::{AtomicI64, Ordering as AtomicOrdering};
+3:use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
+5:use object::read::elf::{ElfFile, FileHeader, SectionHeader, Sym};
+6:use object::{Endianness, Object, ObjectSection, ObjectSymbol, SectionKind, SymbolKind};
+8:use crate::address::{Address, RangeList};
+9:use crate::architecture::{ATTRIB_ADJUSTVMA, Architecture, ArchitectureCapability, ErrorStream};
+10:use crate::capability::CapabilityPoint;
+11:use crate::error::{Error, Result};
+12:use crate::istream::{Basefield, read_i64};
+13:use crate::loadimage::{LoadImage, LoadImageFunc, LoadImageSection, MAX_LOAD_IMAGE_BYTES, SharedLoadImage};
+14:use crate::marshal::{ElementId, Encoder};
+15:use crate::sleigh_arch::{
+18:use crate::space::{AddrSpace, SpaceRef};
+19:use crate::xml::{Document, DocumentStorage};
+49:struct ObjectSectionRecord {
+58:struct ObjectSymbolRecord {
+65:struct ParsedObject {
+73:struct ObjectLoadImageState {
+85:pub struct ObjectLoadImage {
+92:fn arch_type_name(file: &object::File<'_>) -> String {
+166:fn infer_language(file: &object::File<'_>) -> Option<String> {
+218:fn valid_file_range(offset: u64, size: u64, data_len: usize) -> bool {
+225:fn parse_elf<'data, Elf: FileHeader<Endian = Endianness>>(
+323:fn parse_generic(file: &object::File<'_>, parsed: &mut ParsedObject, data_len: usize) {
+388:fn parse_object(data: &[u8]) -> Option<ParsedObject> {
+406:fn parse_binary(data: &[u8]) -> ParsedObject {
+421:fn is_supported_object_magic(magic: [u8; 4]) -> bool {
+430:fn is_object_file_path(filename: &str) -> bool {
+438:pub fn is_object_file(data: &[u8]) -> bool {
+450:impl ObjectLoadImage {
+579:impl LoadImage for ObjectLoadImage {
+777:impl AdjustableLoadImage for ObjectLoadImage {
+787:pub struct ObjectArchitectureCapability;
+789:pub static OBJECT_ARCHITECTURE_CAPABILITY: ObjectArchitectureCapability = ObjectArchitectureCapability;
+791:impl CapabilityPoint for ObjectArchitectureCapability {
+797:impl ArchitectureCapability for ObjectArchitectureCapability {
+820:impl SleighCapability for ObjectArchitectureCapability {
+835:pub struct ObjectArchitecture {
+842:impl ObjectArchitecture {
+868:pub fn language_from_arch_type(archtype: &str) -> Result<String> {
+888:impl SleighArchitectureHooks for ObjectArchitecture {
+982:#[cfg(test)]
+983:mod parser_safety_tests {
+== DATATEST (boolless) ==
+warning: unused import: `CommentDatabase`
+  --> src/program.rs:16:31
+   |
+16 | use crate::comment::{Comment, CommentDatabase};
+   |                               ^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `crate::globalcontext::ContextDatabase`
+  --> src/program.rs:19:5
+   |
+19 | use crate::globalcontext::ContextDatabase;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: variable `decompile_ok` is assigned to, but never used
+   --> src/ifacedecomp/printing.rs:963:9
+    |
+963 |     let mut decompile_ok = 0usize;
+    |         ^^^^^^^^^^^^^^^^
+    |
+    = note: consider using `_decompile_ok` instead
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: value assigned to `decompile_ok` is never read
+    --> src/ifacedecomp/printing.rs:1055:17
+     |
+1055 |                 decompile_ok += 1;
+     |                 ^^^^^^^^^^^^^^^^^
+     |
+     = help: maybe it is overwritten before being read?
+     = note: `#[warn(unused_assignments)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `smali_type` is never used
+   --> src/dex.rs:345:4
+    |
+345 | fn smali_type(descriptor: &str) -> String {
+    |    ^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `ghidra-decompiler` (lib) generated 5 warnings
+    Finished `test` profile [optimized + debuginfo] target(s) in 1m 44s
+     Running tests/datatests.rs (target/debug/deps/datatests-d1d3404ca1a835e7)
+
+running 1 test
+FAIL boolless.xml: 0/2 passed (0 applied) -- Execution failed for /home/runner/work/ghidra-rust-engine/ghidra-rust-engine/tests/data/datatests/boolless.xml
+Total: 0/2 checks passed (0 applied) in 1 files, 0 skipped (processor feature disabled)
+
+
+thread 'datatests' (5257) panicked at tests/datatests.rs:188:5:
+assertion `left == right` failed: datatest checks failed:
+FAIL boolless.xml: 0/2 passed (0 applied) -- Execution failed for /home/runner/work/ghidra-rust-engine/ghidra-rust-engine/tests/data/datatests/boolless.xml
+Total: 0/2 checks passed (0 applied) in 1 files, 0 skipped (processor feature disabled)
+
+  left: 0
+ right: 2
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test datatests ... FAILED
+
+failures:
+
+failures:
+    datatests
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `--test datatests`
