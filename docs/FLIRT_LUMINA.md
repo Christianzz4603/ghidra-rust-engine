@@ -68,3 +68,5 @@ retrieved prototypes/comments are future integration work.
    reconstruction.
 5. Preserve evidence provenance and confidence. A FLIRT or Lumina name is
    metadata evidence, not proof that a candidate is the exact source function.
+
+The Lumina client needs the `lumina` cargo feature. It is part of `default` and `desktop`, and it is not part of `mobile`, so that mobile builds do not need the C toolchain of the TLS library.

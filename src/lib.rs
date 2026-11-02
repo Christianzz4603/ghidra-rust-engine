@@ -90,6 +90,7 @@ pub mod microcode;
 pub mod reconstruction;
 pub mod flirt;
 pub mod filemanage;
+#[cfg(feature = "lumina")]
 pub mod lumina;
 pub mod rangemap;
 pub mod rangeutil;
@@ -138,6 +139,7 @@ pub use microcode::{DefUseEdge, MicrocodeAnalyzer, MicrocodeLocation, MicrocodeR
 pub use type_recovery::{RecoveredTypeKind, RecoveredVariableType, TypeConstraintEvidence, TypeRecoveryAnalyzer, TypeRecoveryReport};
 pub use pseudocode::{DecompileBatch, DecompileFailure, FunctionPseudocode, PseudocodeDecompiler, PseudocodeLine, PseudocodeOptions};
 pub use flirt::{FlirtAnalyzer, FlirtMatch, FlirtOptions, FlirtReport};
+#[cfg(feature = "lumina")]
 pub use lumina::LuminaClient;
 pub use signature::{FunctionSignature, SignatureFeature, SignatureKind, SignatureSettings};
 pub use ghidra_host::{CommentDescriptor, ContextValueDescriptor, DataTypeDescriptor, Endianness, FunctionDescriptor, ParameterDescriptor, HostCommand, HostRequest, HostResponse, MemoryBlock, ProgramSnapshot, ReferenceDescriptor, RelocationDescriptor, SymbolDescriptor};
