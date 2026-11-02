@@ -1,202 +1,72 @@
 == CLIPPY REMAINING ==
 examples/webui.rs:334:4: error: function `main` is never used
 error: could not compile `ghidra-decompiler` (example "decomp") due to 1 previous error
-== DATATESTS.RS ==
-            .count() as i32,
-        Err(_) => 0,
-    }
-}
-
-thread_local! {
-    static PANIC_LOCATION: std::cell::RefCell<String> = const { std::cell::RefCell::new(String::new()) };
-}
-
-fn panic_message(payload: &(dyn std::any::Any + Send)) -> String {
-    let message = if let Some(text) = payload.downcast_ref::<&str>() {
-        text.to_string()
-    } else if let Some(text) = payload.downcast_ref::<String>() {
-        text.clone()
-    } else {
-        "unknown panic".to_string()
-    };
-    let location = PANIC_LOCATION.with(|cell| cell.borrow().clone());
-    format!("{message} at {location}")
-}
-
-fn run_file(path: &Path) -> FileOutcome {
-    let name = path
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or_default()
-        .to_string();
-    let checks = count_checks(path);
-    let filename = path.to_string_lossy().into_owned();
-    let result = catch_unwind(AssertUnwindSafe(|| {
-        let output = new_out_stream();
-        let mut console = new_test_console(output.clone());
-        console.set_error_is_done(true);
-        let mut collection = FunctionTestCollection::new();
-        let mut failures = Vec::new();
-        let counts = collection.run_test_file(&filename, &mut console, &mut failures);
-        if counts.is_none() || std::env::var_os("DATATESTS_CONSOLE").is_some() {
-            let diagnostic = output.lock().expect("poisoned output stream lock").clone();
-            if !diagnostic.trim().is_empty() {
-                eprintln!("datatest console output for {filename}:\n{diagnostic}");
+== Cargo.toml (example/bin sections) ==
+14:[[bin]]
+15-name = "ghidra-rust-worker"
+16-path = "src/bin/ghidra-rust-worker.rs"
+17-
+18-[dependencies]
+19-cpp_demangle = { version = "0.5.1", optional = true }
+20-lzma-rs = "0.3"
+decomp.rs
+inspect.rs
+raw_decompile.rs
+webui.rs
+== webui.rs ==
+1:use std::io::{Read, Write};
+2:use std::net::{TcpListener, TcpStream};
+3:use std::path::Path;
+4:use std::sync::{Arc, Mutex};
+5:use std::time::Duration;
+7:use ghidra_decompiler::Program;
+334:fn main() {
+                });
             }
+            Err(error) => eprintln!("[webui] connection error: {error}"),
         }
-        (counts, failures)
-    }));
-    match result {
-        Ok((Some((applied, succeeded)), failures)) => FileOutcome {
-            name,
-            checks,
-            applied,
-            succeeded,
-            problem: if failures.is_empty() {
-                None
-            } else {
-                Some(failures.join("; "))
-            },
-        },
-        Ok((None, failures)) => FileOutcome {
-            name,
-            checks,
-            applied: 0,
-            succeeded: 0,
-            problem: Some(failures.join("; ")),
-        },
-        Err(payload) => FileOutcome {
-            name,
-            checks,
-            applied: 0,
-            succeeded: 0,
-            problem: Some(format!("panic: {}", panic_message(payload.as_ref()))),
-        },
     }
+    Ok(())
 }
 
-#[test]
-fn datatests() {
-    let files = test_files();
-    let previous_hook = std::panic::take_hook();
-    std::panic::set_hook(Box::new(|info| {
-        let location = info
-            .location()
-            .map(|location| format!("{}:{}", location.file(), location.line()))
-            .unwrap_or_default();
-        PANIC_LOCATION.with(|cell| *cell.borrow_mut() = location);
-        if std::env::var("DATATESTS_BACKTRACE").is_ok() {
-            let backtrace = std::backtrace::Backtrace::force_capture().to_string();
-            let frames: Vec<&str> = backtrace
-                .lines()
-                .filter(|line| line.contains("ghidra_decompiler::") || line.contains("ghidra-decompiler/src"))
-                .collect();
-            eprintln!("panic backtrace:\n{}", frames.join("\n"));
-        }
-    }));
-    let (runnable, skipped): (Vec<PathBuf>, Vec<PathBuf>) = files.into_iter().partition(|path| language_embedded(path));
-    let outcomes: Vec<FileOutcome> = runnable.iter().map(|path| run_file(path)).collect();
-    std::panic::set_hook(previous_hook);
-    let mut total_checks = 0;
-    let mut total_applied = 0;
-    let mut total_succeeded = 0;
-    let mut report = String::new();
-    for outcome in outcomes.iter() {
-        total_checks += outcome.checks;
-        total_applied += outcome.applied;
-        total_succeeded += outcome.succeeded;
-        let status = if outcome.succeeded == outcome.checks && outcome.problem.is_none() {
-            "pass"
-        } else {
-            "FAIL"
-        };
-        report.push_str(&format!(
-            "{status} {}: {}/{} passed ({} applied)",
-            outcome.name, outcome.succeeded, outcome.checks, outcome.applied
-        ));
-        if let Some(problem) = &outcome.problem {
-            let first_line = problem.lines().next().unwrap_or_default();
-            report.push_str(&format!(" -- {first_line}"));
-        }
-        report.push('\n');
+/// Launch the local web interface. Pass an optional port as the first argument.
+fn main() {
+    let port = std::env::args()
+        .nth(1)
+        .and_then(|value| value.parse::<u16>().ok())
+        .unwrap_or(8080);
+
+    if let Err(error) = run(port) {
+        eprintln!("failed to start web UI on 127.0.0.1:{port}: {error}");
+        std::process::exit(1);
     }
-    report.push_str(&format!(
-        "Total: {total_succeeded}/{total_checks} checks passed ({total_applied} applied) in {} files, {} skipped (processor feature disabled)\n",
-        outcomes.len(),
-        skipped.len()
-    ));
-    println!("{report}");
-    let filtered = std::env::var("DATATESTS_FILTER").is_ok_and(|filter| !filter.is_empty());
-    if !filtered && skipped.is_empty() {
-        assert_eq!(total_checks, EXPECTED_TOTAL, "unexpected number of datatest checks");
-    }
-    assert_eq!(total_succeeded, total_checks, "datatest checks failed:\n{report}");
 }
-== new_test_console ==
-115:pub fn new_test_console(args: OutStream) -> IfaceStatus {
-116-    let mut console = IfaceStatus::new_commands("> ", args, Vec::new());
-117-    register_all_commands(&mut console);
-118-    console
-119-}
-120-
-121-impl FunctionTestCollection {
-122-    pub fn new() -> FunctionTestCollection {
-123-        FunctionTestCollection::default()
-124-    }
-125-
-126-    pub fn get_tests_applied(&self) -> i32 {
-127-        self.num_tests_applied
-128-    }
-129-
-130-    pub fn get_tests_succeeded(&self) -> i32 {
-131-        self.num_tests_succeeded
-132-    }
-133-
-134-    pub fn num_commands(&self) -> i32 {
-135-        self.commands.len() as i32
-136-    }
-137-
-138-    pub fn get_command(&self, index: i32) -> String {
-139-        self.commands[index as usize].clone()
-140-    }
-141-
-142-    pub fn clear(&mut self, console: &mut IfaceStatus) {
-143-        decomp_data(console).clear_architecture();
-144-        self.commands.clear();
-145-        self.test_list.clear();
-== DATATEST (boolless) ==
-    Finished `test` profile [optimized + debuginfo] target(s) in 2m 05s
+== DATATEST (boolless, console) ==
+    Finished `test` profile [optimized + debuginfo] target(s) in 2m 04s
      Running tests/datatests.rs (target/debug/deps/datatests-d1d3404ca1a835e7)
 
 running 1 test
+datatest console output for /home/runner/work/ghidra-rust-engine/ghidra-rust-engine/tests/data/datatests/boolless.xml:
+Error: Did not apply tests in /home/runner/work/ghidra-rust-engine/ghidra-rust-engine/tests/data/datatests/boolless.xml
+> Function boolless: 0xa000
+> Command parsing error: Usage: decompile <function>
+Aborting process
+> Function ERROR: Function not decompiled
+Aborting process
+> 
+
 FAIL boolless.xml: 0/2 passed (0 applied) -- Execution failed for /home/runner/work/ghidra-rust-engine/ghidra-rust-engine/tests/data/datatests/boolless.xml
 Total: 0/2 checks passed (0 applied) in 1 files, 0 skipped (processor feature disabled)
 
 
-thread 'datatests' (5366) panicked at tests/datatests.rs:188:5:
+thread 'datatests' (5290) panicked at tests/datatests.rs:188:5:
 assertion `left == right` failed: datatest checks failed:
 FAIL boolless.xml: 0/2 passed (0 applied) -- Execution failed for /home/runner/work/ghidra-rust-engine/ghidra-rust-engine/tests/data/datatests/boolless.xml
 Total: 0/2 checks passed (0 applied) in 1 files, 0 skipped (processor feature disabled)
 
   left: 0
  right: 2
-stack backtrace:
-   0: __rustc::rust_begin_unwind
-             at /rustc/48a229ceaefd4985c50990b14116b6d856af0985/library/std/src/panicking.rs:679:5
-   1: core::panicking::panic_fmt
-             at /rustc/48a229ceaefd4985c50990b14116b6d856af0985/library/core/src/panicking.rs:80:14
-   2: core::panicking::assert_failed_inner
-             at /rustc/48a229ceaefd4985c50990b14116b6d856af0985/library/core/src/panicking.rs:434:23
-   3: core::panicking::assert_failed::<i32, i32>
-             at /rustc/48a229ceaefd4985c50990b14116b6d856af0985/library/core/src/panicking.rs:394:5
-   4: datatests::datatests
-   5: datatests::datatests::{closure#0}
-             at ./tests/datatests.rs:134:15
-   6: <datatests::datatests::{closure#0} as core::ops::function::FnOnce<()>>::call_once
-             at /rustc/48a229ceaefd4985c50990b14116b6d856af0985/library/core/src/ops/function.rs:250:5
-   7: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
-             at /rustc/48a229ceaefd4985c50990b14116b6d856af0985/library/core/src/ops/function.rs:250:5
-note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
 test datatests ... FAILED
 
 failures:
@@ -204,7 +74,8 @@ failures:
 failures:
     datatests
 
-test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.17s
-== LAST GOOD RUST CI? ==
-3037ec0 Fix remaining clippy errors
-c065c0b Update temporary CI workflow: patch remaining 5 lints and collect datatest diagnostics
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `--test datatests`
+== git log ==
+0e8d4c6 Temporary CI: make diagnostics step tolerate non-matching greps
