@@ -26,6 +26,7 @@ struct HydrationCounters {
     memory_blocks_loaded: usize,
     executable_blocks_loaded: usize,
     functions_applied: usize,
+    function_signatures_applied: usize,
     function_symbols_applied: usize,
     data_symbols_applied: usize,
     comments_applied: usize,
@@ -47,6 +48,7 @@ impl HydrationCounters {
             "memory_blocks_loaded": self.memory_blocks_loaded,
             "executable_blocks_loaded": self.executable_blocks_loaded,
             "functions_applied": self.functions_applied,
+            "function_signatures_applied": self.function_signatures_applied,
             "function_symbols_applied": self.function_symbols_applied,
             "data_symbols_applied": self.data_symbols_applied,
             "comments_applied": self.comments_applied,
@@ -139,17 +141,19 @@ impl GhidraWorker {
                 let parameters = function.parameters.iter().map(|parameter| crate::ImportedParameter {
                     ordinal: parameter.ordinal, name: parameter.name.clone(), type_name: parameter.type_name.clone(), storage: parameter.storage.clone(),
                 }).collect();
-                if let Err(error) = program.import_function_signature(function.entry, function.calling_convention.as_deref(), function.return_type.as_deref(), parameters) {
-                    failures.push(format!("function prototype at {:#x}: {error}", function.entry));
+                match program.import_function_signature(function.entry, function.calling_convention.as_deref(), function.return_type.as_deref(), parameters) {
+                    Ok(()) => report.function_signatures_applied += 1,
+                    Err(error) => failures.push(format!("function prototype at {:#x}: {error}", function.entry)),
                 }
             }
             for symbol in snapshot.symbols.iter().filter(|item| item.address >= block.start && item.address < end) {
                 let is_function = matches!(symbol.kind.to_ascii_lowercase().as_str(), "function" | "func" | "code")
                     || snapshot.functions.iter().any(|function| function.entry == symbol.address);
                 if is_function {
-                    let function_name = snapshot.functions.iter().find(|function| function.entry == symbol.address)
-                        .map(|function| function.name.as_str()).unwrap_or(&symbol.name);
-                    match program.ensure_function_at(symbol.address, Some(function_name)) {
+                    let qualified_name = snapshot.functions.iter().find(|function| function.entry == symbol.address)
+                        .map(|function| function.namespace.as_ref().map(|namespace| format!("{namespace}::{}", function.name)).unwrap_or_else(|| function.name.clone()))
+                        .unwrap_or_else(|| symbol.name.clone());
+                    match program.ensure_function_at(symbol.address, Some(&qualified_name)) {
                         Ok(_) => report.function_symbols_applied += 1,
                         Err(error) => failures.push(format!("function symbol {} at {:#x}: {error}", symbol.name, symbol.address)),
                     }
@@ -236,8 +240,9 @@ impl GhidraWorker {
         let loaded_index = self.loaded_blocks.iter().position(|loaded| loaded.executable && address >= loaded.start && address < loaded.end)
             .ok_or_else(|| format!("function {address:#x} is not inside an initialized executable memory block"))?;
         let loaded = &mut self.loaded_blocks[loaded_index];
-        loaded.program.ensure_function_at(address, Some(&function.name))
-            .map_err(|error| format!("could not register function {} at {address:#x}: {error}", function.name))?;
+        let qualified_name = function.namespace.as_ref().map(|namespace| format!("{namespace}::{}", function.name)).unwrap_or_else(|| function.name.clone());
+        loaded.program.ensure_function_at(address, Some(&qualified_name))
+            .map_err(|error| format!("could not register function {} at {address:#x}: {error}", qualified_name))?;
         let pseudocode = PseudocodeDecompiler::default()
             .decompile(&mut loaded.program, address)
             .map_err(|error| format!("decompilation failed for {} at {address:#x}: {error}", function.name))?;
