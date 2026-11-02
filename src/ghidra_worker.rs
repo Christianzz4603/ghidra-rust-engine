@@ -30,6 +30,10 @@ struct HydrationCounters {
     data_symbols_applied: usize,
     comments_applied: usize,
     duplicate_comments: usize,
+    references_applied: usize,
+    relocations_recorded: usize,
+    data_types_recorded: usize,
+    context_values_applied: usize,
     relocations_deferred: usize,
     references_deferred: usize,
     data_types_deferred: usize,
@@ -47,6 +51,10 @@ impl HydrationCounters {
             "data_symbols_applied": self.data_symbols_applied,
             "comments_applied": self.comments_applied,
             "duplicate_comments": self.duplicate_comments,
+            "references_applied": self.references_applied,
+            "relocations_recorded": self.relocations_recorded,
+            "data_types_recorded": self.data_types_recorded,
+            "context_values_applied": self.context_values_applied,
             "relocations_deferred": self.relocations_deferred,
             "references_deferred": self.references_deferred,
             "data_types_deferred": self.data_types_deferred,
@@ -154,6 +162,30 @@ impl GhidraWorker {
                     Err(error) => failures.push(format!("comment at {:#x}: {error}", comment.address)),
                 }
             }
+            for reference in snapshot.references.iter().filter(|item| item.from >= block.start && item.from < end) {
+                match program.import_reference(reference.from, reference.to, &reference.kind, reference.is_primary) {
+                    Ok(inserted) => { if inserted { report.references_applied += 1; } },
+                    Err(error) => failures.push(format!("reference {:#x}->{:#x}: {error}", reference.from, reference.to)),
+                }
+            }
+            for relocation in snapshot.relocations.iter().filter(|item| item.address >= block.start && item.address < end) {
+                match program.import_relocation(relocation.address, &relocation.kind, relocation.symbol.as_deref(), relocation.addend) {
+                    Ok(()) => report.relocations_recorded += 1,
+                    Err(error) => failures.push(format!("relocation at {:#x}: {error}", relocation.address)),
+                }
+            }
+            for data_type in &snapshot.data_types {
+                match program.import_data_type(&data_type.name, &data_type.kind, data_type.size, data_type.signed, data_type.encoding.as_deref()) {
+                    Ok(()) => { if report.memory_blocks_loaded == 1 { report.data_types_recorded += 1; } },
+                    Err(error) => failures.push(format!("datatype {}: {error}", data_type.name)),
+                }
+            }
+            for context in snapshot.context_values.iter().filter(|item| item.address >= block.start && item.address < end) {
+                match program.import_context_value(context.address, &context.register, context.value) {
+                    Ok(()) => report.context_values_applied += 1,
+                    Err(error) => failures.push(format!("context {} at {:#x}: {error}", context.register, context.address)),
+                }
+            }
             loaded_blocks.push(LoadedBlock { start: block.start, end, executable: block.executable, program });
         }
         if !snapshot.memory_blocks.iter().any(|block| block.executable && !block.bytes.is_empty()) {
@@ -162,10 +194,10 @@ impl GhidraWorker {
         if !loaded_blocks.iter().any(|block| block.executable) {
             return Err(format!("no executable memory blocks could be initialized: {}", failures.join("; ")));
         }
-        report.relocations_deferred = snapshot.relocations.len();
-        report.references_deferred = snapshot.references.len();
-        report.data_types_deferred = snapshot.data_types.len();
-        report.context_values_deferred = snapshot.context_values.len();
+        report.relocations_deferred = snapshot.relocations.len().saturating_sub(report.relocations_recorded);
+        report.references_deferred = snapshot.references.len().saturating_sub(report.references_applied);
+        report.data_types_deferred = snapshot.data_types.len().saturating_sub(report.data_types_recorded);
+        report.context_values_deferred = snapshot.context_values.len().saturating_sub(report.context_values_applied);
         report.symbols_outside_loaded_blocks = snapshot.symbols.iter().filter(|symbol| {
             !loaded_blocks.iter().any(|block| symbol.address >= block.start && symbol.address < block.end)
         }).count();
@@ -183,7 +215,7 @@ impl GhidraWorker {
             "compiler_spec_id": compiler_spec_id,
             "hydration": summary,
             "hydration_warnings": failures,
-            "metadata_policy": "supported records are applied to native per-memory-block Program databases; relocations, references, datatype graphs and processor context are retained in the snapshot but deferred until their native database adapters are implemented",
+            "metadata_policy": "functions, symbols, comments, references, relocation descriptors, datatype descriptors and supported SLEIGH context values are imported into per-block Program state; relocation arithmetic and full datatype graph binding remain loader/type-factory work",
         }))
     }
 
