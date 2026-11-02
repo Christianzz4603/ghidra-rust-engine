@@ -14,29 +14,37 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Install toolchain
         run: rustup toolchain install 1.98.1 --profile minimal --component clippy,rustfmt
 
-      - name: Write report
+      - name: Patch and report
         run: |
           set +e
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if ! grep -q 'allow(dead_code)' examples/webui.rs; then
+            sed -i 's/^fn main() {$/#[allow(dead_code)]\nfn main() {/' examples/webui.rs
+          fi
+          cargo fmt
+          git add -A -- src tests examples
+          git commit -m "Allow dead_code on webui example main (it is included as a module by another example)" && git push
           {
             echo "== CLIPPY REMAINING =="
             cargo clippy --all-targets --message-format=short -- -D warnings 2>&1 | grep -E "^(src|tests|examples).*(error|warning)|could not compile|Finished" | head -30
-            echo "== Cargo.toml (example/bin sections) =="
-            grep -n -A6 '^\[\[' Cargo.toml
-            ls examples
-            echo "== webui.rs =="
-            grep -n 'cfg\|fn main\|^mod \|^use ' examples/webui.rs | head -40
-            sed -n '325,345p' examples/webui.rs
-            echo "== DATATEST (boolless, console) =="
-            DATATESTS_CONSOLE=1 DATATESTS_FILTER=boolless cargo test --test datatests -- --nocapture 2>&1 | grep -v "^   Compiling" | cut -c1-400 | head -80
-            echo "== git log =="
-            git log --oneline -8
+            echo "== grep Usage: decompile =="
+            grep -rn 'Usage: decompile' src | head
+            F=$(grep -rln 'Usage: decompile' src | head -1)
+            L=$(grep -n 'Usage: decompile' "$F" | head -1 | cut -d: -f1)
+            echo "file=$F line=$L"
+            sed -n "$((L-30)),$((L+15))p" "$F"
+            echo "== git log -S =="
+            git log --format='%h %ad %s' --date=short -S'Usage: decompile <function>' -- src | head
+            echo "== boolless.xml =="
+            head -c 1500 tests/data/datatests/boolless.xml | cut -c1-200
           } > autofix-report.txt 2>&1
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -f autofix-report.txt
           git commit -m "Update autofix report (temporary)"
           git push
