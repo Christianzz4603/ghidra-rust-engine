@@ -6,6 +6,7 @@ mod symbols;
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
 use std::fmt;
+use std::io::Read;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -26,7 +27,7 @@ use crate::translate::{AddrSpaceManager, AssemblyEmit, PcodeEmit};
 use crate::types::TypeMetatype;
 use crate::xml::DocumentStorage;
 
-const MAX_INPUT_IMAGE_BYTES: u64 = 2 * 1024 * 1024 * 1024;
+const MAX_INPUT_IMAGE_BYTES: u64 = 512 * 1024 * 1024;
 const MAX_PCODE_CACHE_BYTES: usize = 16 * 1024 * 1024;
 const MAX_PCODE_RANGE_BYTES: u64 = 4 * 1024 * 1024;
 const MAX_PCODE_INSTRUCTIONS: usize = 250_000;
@@ -370,13 +371,15 @@ impl Program {
     }
 
     pub fn open_with(path: &Path, language: Option<&str>, loading: SymbolLoading) -> Result<Program> {
-        let metadata = std::fs::metadata(path)
-            .map_err(|error| Error::Lowlevel(format!("failed to inspect '{}': {error}", path.display())))?;
-        if metadata.len() > MAX_INPUT_IMAGE_BYTES {
-            return Err(Error::Lowlevel(format!("image is {} bytes, exceeding the safe input limit of {} bytes", metadata.len(), MAX_INPUT_IMAGE_BYTES)));
-        }
-        let bytes = std::fs::read(path)
+        let file = std::fs::File::open(path)
+            .map_err(|error| Error::Lowlevel(format!("failed to open '{}': {error}", path.display())))?;
+        let mut bytes = Vec::new();
+        file.take(MAX_INPUT_IMAGE_BYTES + 1)
+            .read_to_end(&mut bytes)
             .map_err(|error| Error::Lowlevel(format!("failed to read '{}': {error}", path.display())))?;
+        if bytes.len() as u64 > MAX_INPUT_IMAGE_BYTES {
+            return Err(Error::Lowlevel(format!("image exceeds the safe input limit of {} bytes", MAX_INPUT_IMAGE_BYTES)));
+        }
         Program::from_image_with(&path.to_string_lossy(), bytes, language, loading)
     }
 
@@ -390,6 +393,9 @@ impl Program {
         language: Option<&str>,
         loading: SymbolLoading,
     ) -> Result<Program> {
+        if bytes.len() as u64 > MAX_INPUT_IMAGE_BYTES {
+            return Err(Error::Lowlevel(format!("image exceeds the safe input limit of {} bytes", MAX_INPUT_IMAGE_BYTES)));
+        }
         if !is_object_file(&bytes) {
             return Err(Error::Lowlevel(format!("unrecognized executable format: {name}")));
         }
