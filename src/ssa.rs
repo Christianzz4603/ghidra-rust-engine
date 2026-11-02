@@ -32,12 +32,11 @@ impl SsaAnalyzer {
   for b in &cfg.blocks {for v in &vars {phi_ids.insert((b.start,v.clone()),SsaVersion(next));next=next.saturating_add(1);}}
   let zero=SsaVersion(0); let initial:BTreeMap<_,_>=vars.iter().cloned().map(|v|(v,zero)).collect();
   let mut ins:BTreeMap<u64,BTreeMap<VarnodeIdentity,SsaVersion>>=cfg.blocks.iter().map(|b|(b.start,initial.clone())).collect();
-  let mut outs=ins.clone(); let block_by_start:BTreeMap<_,_>=cfg.blocks.iter().map(|b|(b.start,b)).collect();
+  let mut outs=ins.clone();
   let limit=cfg.blocks.len().saturating_mul(vars.len().saturating_add(1)).saturating_mul(def_ids.len().saturating_add(cfg.blocks.len()).saturating_add(1)).saturating_mul(8).clamp(64,10_000_000);
   let mut queue=starts.clone(); let mut queued=queue.clone(); let mut iterations=0usize;
   while !queue.is_empty() && iterations<limit {
    let start=queue.pop_first().unwrap(); queued.remove(&start); iterations=iterations.saturating_add(1);
-   let Some(b)=block_by_start.get(&start).copied() else {continue;};
    let ps=preds.get(&start).cloned().unwrap_or_default(); let mut incoming=BTreeMap::new();
    for v in &vars {let mut versions:BTreeSet<_>=ps.iter().filter_map(|p|outs.get(p).and_then(|s|s.get(v)).copied()).collect();if start==cfg.function{versions.insert(zero);}let ver=if versions.len()>1{phi_ids[&(start,v.clone())]}else{versions.iter().next().copied().unwrap_or(zero)};incoming.insert(v.clone(),ver);}
    let mut outgoing=incoming.clone();if let Some(ops)=ops_by_block.get(&start){for op in ops {if let Some(v)=&op.operation.output {if v.space!="const" {if let Some(id)=def_ids.get(&(start,op.address,op.index)){outgoing.insert(v.into(),*id);}}}}}
