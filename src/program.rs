@@ -12,6 +12,7 @@ use std::sync::Arc;
 use crate::address::Address;
 use crate::architecture::{Architecture, ArchitectureBuilder};
 use crate::callgraph::CallGraph;
+use crate::comment::{Comment, CommentDatabase};
 use crate::database::{Database, ScopeId, SymbolId};
 use crate::error::{Error, Result};
 use crate::loadimage::LoadImageFunc;
@@ -656,6 +657,30 @@ impl Program {
         result.sort_by_key(|entry| entry.address);
         result.dedup_by_key(|entry| entry.address);
         Ok(result)
+    }
+
+    /// Import a sized data symbol from an external program database.
+    pub fn import_data_symbol(&mut self, address: u64, name: &str, size: u64) -> Result<()> {
+        if name.is_empty() || name.len() > 1024 || name.contains('\0') { return Err(Error::Lowlevel("invalid imported data symbol name".to_string())); }
+        if size == 0 || size > 1024 * 1024 { return Err(Error::Lowlevel(format!("unsupported imported data symbol size {size}"))); }
+        if self.data.contains_key(&address) { self.set_data_name(address, name)?; return Ok(()); }
+        self.add_typed_data_symbol(name, None, address, size)
+    }
+
+    /// Import a code-unit comment into the native decompiler comment database.
+    pub fn import_comment(&mut self, function_entry: u64, address: u64, kind: &str, text: &str) -> Result<bool> {
+        if text.len() > 64 * 1024 || text.contains('\0') { return Err(Error::Lowlevel("invalid imported comment text".to_string())); }
+        let comment_type = match kind.to_ascii_lowercase().as_str() {
+            "plate" | "header" => Comment::HEADER,
+            "pre" | "pre_comment" | "eol" | "end_of_line" => Comment::USER1,
+            "post" | "post_comment" => Comment::USER2,
+            "repeatable" => Comment::USER3,
+            other => return Err(Error::Lowlevel(format!("unsupported comment kind {other}"))),
+        };
+        let function_address = self.code_address(function_entry)?;
+        let comment_address = self.code_address(address)?;
+        let database = self.architecture.commentdb.as_deref_mut().ok_or_else(|| Error::Lowlevel("architecture has no comment database".to_string()))?;
+        Ok(database.add_comment_no_duplicate(comment_type, &function_address, &comment_address, text))
     }
 
     pub fn set_symbol_name(&mut self, address: u64, name: &str) -> Result<()> {

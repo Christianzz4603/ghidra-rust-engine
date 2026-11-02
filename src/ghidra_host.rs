@@ -16,6 +16,10 @@ pub const MAX_MEMORY_BLOCKS: usize = 4096;
 pub const MAX_FUNCTIONS: usize = 100_000;
 pub const MAX_SYMBOLS: usize = 200_000;
 pub const MAX_RELOCATIONS: usize = 200_000;
+pub const MAX_COMMENTS: usize = 200_000;
+pub const MAX_REFERENCES: usize = 500_000;
+pub const MAX_DATA_TYPES: usize = 100_000;
+pub const MAX_CONTEXT_VALUES: usize = 500_000;
 const MAX_IDENTIFIER_BYTES: usize = 1024;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -47,6 +51,9 @@ pub struct SymbolDescriptor {
     pub address: u64,
     pub name: String,
     pub kind: String,
+    pub size: u64,
+    pub namespace: Option<String>,
+    pub type_name: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -56,6 +63,15 @@ pub struct RelocationDescriptor {
     pub symbol: Option<String>,
     pub addend: i64,
 }
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CommentDescriptor { pub address: u64, pub function_entry: Option<u64>, pub kind: String, pub text: String }
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ReferenceDescriptor { pub from: u64, pub to: u64, pub kind: String, pub is_primary: bool }
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DataTypeDescriptor { pub name: String, pub kind: String, pub size: u64, pub signed: Option<bool>, pub encoding: Option<String> }
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ContextValueDescriptor { pub address: u64, pub register: String, pub value: u64 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ProgramSnapshot {
@@ -68,6 +84,10 @@ pub struct ProgramSnapshot {
     pub functions: Vec<FunctionDescriptor>,
     pub symbols: Vec<SymbolDescriptor>,
     pub relocations: Vec<RelocationDescriptor>,
+    pub comments: Vec<CommentDescriptor>,
+    pub references: Vec<ReferenceDescriptor>,
+    pub data_types: Vec<DataTypeDescriptor>,
+    pub context_values: Vec<ContextValueDescriptor>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -275,6 +295,9 @@ fn parse_snapshot(value: &Value) -> Result<ProgramSnapshot, String> {
             address: required_u64(raw, "address")?,
             name: bounded_string(raw, "name", MAX_IDENTIFIER_BYTES)?,
             kind: bounded_string(raw, "kind", 128)?,
+            size: match raw.get("size") { None | Some(Value::Null) => 1, Some(value) => value.as_u64().ok_or("symbol size must be an unsigned integer")? },
+            namespace: optional_string(raw, "namespace", MAX_IDENTIFIER_BYTES)?,
+            type_name: optional_string(raw, "type_name", MAX_IDENTIFIER_BYTES)?,
         });
     }
 
@@ -289,6 +312,32 @@ fn parse_snapshot(value: &Value) -> Result<ProgramSnapshot, String> {
         });
     }
 
+    let raw_comments = optional_array(value, "comments", MAX_COMMENTS)?;
+    let mut comments = Vec::with_capacity(raw_comments.len());
+    for raw in raw_comments {
+        comments.push(CommentDescriptor {
+            address: required_u64(raw, "address")?,
+            function_entry: match raw.get("function_entry") { None | Some(Value::Null) => None, Some(_) => Some(required_u64(raw, "function_entry")?) },
+            kind: bounded_string(raw, "kind", 64)?,
+            text: bounded_string(raw, "text", MAX_FRAME_BYTES)?,
+        });
+    }
+    let raw_references = optional_array(value, "references", MAX_REFERENCES)?;
+    let mut references = Vec::with_capacity(raw_references.len());
+    for raw in raw_references {
+        references.push(ReferenceDescriptor { from: required_u64(raw, "from")?, to: required_u64(raw, "to")?, kind: bounded_string(raw, "kind", 128)?, is_primary: optional_bool(raw, "is_primary", false)? });
+    }
+    let raw_types = optional_array(value, "data_types", MAX_DATA_TYPES)?;
+    let mut data_types = Vec::with_capacity(raw_types.len());
+    for raw in raw_types {
+        data_types.push(DataTypeDescriptor { name: bounded_string(raw, "name", MAX_IDENTIFIER_BYTES)?, kind: bounded_string(raw, "kind", 128)?, size: required_u64(raw, "size")?, signed: match raw.get("signed") { None | Some(Value::Null) => None, Some(Value::Bool(value)) => Some(*value), Some(_) => return Err("datatype signed must be boolean".into()) }, encoding: optional_string(raw, "encoding", 128)? });
+    }
+    let raw_context = optional_array(value, "context_values", MAX_CONTEXT_VALUES)?;
+    let mut context_values = Vec::with_capacity(raw_context.len());
+    for raw in raw_context {
+        context_values.push(ContextValueDescriptor { address: required_u64(raw, "address")?, register: bounded_string(raw, "register", MAX_IDENTIFIER_BYTES)?, value: required_u64(raw, "value")? });
+    }
+
     Ok(ProgramSnapshot {
         name,
         language_id,
@@ -299,6 +348,10 @@ fn parse_snapshot(value: &Value) -> Result<ProgramSnapshot, String> {
         functions,
         symbols,
         relocations,
+        comments,
+        references,
+        data_types,
+        context_values,
     })
 }
 
