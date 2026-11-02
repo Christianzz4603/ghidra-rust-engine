@@ -20,11 +20,23 @@ pub struct PseudocodeOptions {
 }
 
 impl PseudocodeOptions {
+    /// Conservative defaults for desktop and mobile hosts processing large binaries.
+    /// Call `unbounded` explicitly when the caller can afford whole-program output.
     pub fn resource_bounded() -> Self {
         Self {
             include_empty_lines: true,
-            max_functions: Some(5_000),
-            max_output_bytes: Some(256 * 1024),
+            max_functions: Some(1_000),
+            max_output_bytes: Some(128 * 1024),
+            discover_functions: true,
+        }
+    }
+
+    /// Restore the legacy unlimited batch and output behavior.
+    pub fn unbounded() -> Self {
+        Self {
+            include_empty_lines: true,
+            max_functions: None,
+            max_output_bytes: None,
             discover_functions: true,
         }
     }
@@ -32,12 +44,7 @@ impl PseudocodeOptions {
 
 impl Default for PseudocodeOptions {
     fn default() -> Self {
-        Self {
-            include_empty_lines: true,
-            max_functions: None,
-            max_output_bytes: None,
-            discover_functions: true,
-        }
+        Self::resource_bounded()
     }
 }
 
@@ -197,18 +204,25 @@ mod tests {
     #[test]
     fn resource_bounded_profile_caps_batch_size_and_output() {
         let options = PseudocodeOptions::resource_bounded();
-        assert_eq!(options.max_functions, Some(5_000));
-        assert_eq!(options.max_output_bytes, Some(256 * 1024));
+        assert_eq!(options.max_functions, Some(1_000));
+        assert_eq!(options.max_output_bytes, Some(128 * 1024));
         assert!(options.discover_functions);
     }
 
     #[test]
-    fn defaults_are_unbounded_and_discover_functions() {
+    fn defaults_are_resource_bounded() {
         let options = PseudocodeOptions::default();
+        assert_eq!(options.max_functions, Some(1_000));
+        assert_eq!(options.max_output_bytes, Some(128 * 1024));
         assert!(options.discover_functions);
+        assert!(options.include_empty_lines);
+    }
+
+    #[test]
+    fn unbounded_profile_preserves_legacy_behavior() {
+        let options = PseudocodeOptions::unbounded();
         assert!(options.max_functions.is_none());
         assert!(options.max_output_bytes.is_none());
-        assert!(options.include_empty_lines);
     }
 
     #[test]
