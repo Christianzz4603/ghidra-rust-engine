@@ -95,6 +95,7 @@ pub mod rangeutil;
 pub mod raw_arch;
 pub mod ruleaction;
 pub mod semantics;
+pub mod slaformat;
 pub mod signature;
 pub mod sleigh;
 pub mod sleigh_arch;

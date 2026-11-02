@@ -4,7 +4,7 @@
 //! snapshot database-backed memory and metadata into this protocol without loading
 //! Rust code into Ghidra's UI JVM. Frames and program snapshots are size-limited.
 
-use std::io::{BufRead, Write};
+use std::io::{BufRead, Read, Write};
 
 use serde_json::{Value, json};
 
