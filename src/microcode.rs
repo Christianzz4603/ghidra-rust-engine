@@ -4,7 +4,7 @@
 //! the backend's P-code stream. It does not claim SSA or CFG-wide reaching
 //! definitions; those require block-sensitive data-flow and phi construction.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use crate::error::Result;
 use crate::opcodes::OpCode;
@@ -65,15 +65,15 @@ pub struct MicrocodeAnalyzer;
 impl MicrocodeAnalyzer {
     /// Analyze the P-code stream for a function entry.
     pub fn analyze(&self, program: &mut Program, address: u64) -> Result<MicrocodeReport> {
-        let instructions = program.function_pcode(address)?;
+        let instructions = program.function_pcode_shared(address)?;
         Ok(self.analyze_instructions(&instructions))
     }
 
     /// Analyze an existing P-code stream without requiring a Program handle.
     pub fn analyze_instructions(&self, instructions: &[InstructionPcode]) -> MicrocodeReport {
         let mut report = MicrocodeReport::default();
-        let mut last_definition = BTreeMap::<VarnodeIdentity, MicrocodeLocation>::new();
-        let mut used_definitions = BTreeSet::<MicrocodeLocation>::new();
+        let mut last_definition = HashMap::<VarnodeIdentity, MicrocodeLocation>::new();
+        let mut used_definitions = HashSet::<MicrocodeLocation>::new();
         let mut definitions = Vec::<(VarnodeIdentity, MicrocodeLocation, bool)>::new();
 
         for (instruction_index, instruction) in instructions.iter().enumerate() {

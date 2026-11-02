@@ -153,7 +153,7 @@ impl DecompilerReconstructor {
         let instructions = if size == 0 { Vec::new() } else { program.disassemble_range(address, size)? };
         let pseudocode = program.decompile(address)?;
         let decompiler_declaration = extract_declaration(&pseudocode);
-        let pcode = program.function_pcode(address)?;
+        let pcode = program.function_pcode_shared(address)?;
         let microcode = MicrocodeAnalyzer.analyze_instructions(&pcode);
         let type_recovery = crate::type_recovery::TypeRecoveryAnalyzer.analyze(&pcode);
         let mut control_flow = cfg.as_ref().map(reconstruct_control_flow).unwrap_or_default();

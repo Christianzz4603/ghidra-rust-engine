@@ -3,7 +3,8 @@ mod discovery;
 mod stubs;
 mod symbols;
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::cell::RefCell;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fmt;
 use std::path::Path;
 use std::sync::Arc;
@@ -23,6 +24,14 @@ use crate::translate::{AddrSpaceManager, AssemblyEmit, PcodeEmit};
 use crate::types::TypeMetatype;
 use crate::xml::DocumentStorage;
 
+const MAX_PCODE_CACHE_BYTES: usize = 64 * 1024 * 1024;
+
+#[derive(Default)]
+struct PcodeCache {
+    entries: HashMap<(u64, u64), Arc<Vec<InstructionPcode>>>,
+    estimated_bytes: usize,
+}
+
 pub struct Program {
     architecture: Box<Architecture>,
     functions: BTreeMap<SymbolId, FunctionRecord>,
@@ -30,6 +39,9 @@ pub struct Program {
     string_sections: Vec<std::ops::Range<u64>>,
     code_sections: Vec<std::ops::Range<u64>>,
     entry: Option<u64>,
+    // Translation is immutable for a loaded image. Shared cached streams let
+    // intelligence, SSA, and reconstruction reuse expensive P-code decoding.
+    pcode_cache: RefCell<PcodeCache>,
 }
 
 const MIN_STRING_LENGTH: usize = 4;
@@ -273,6 +285,24 @@ fn panic_guard<R>(run: impl FnOnce() -> Result<R>) -> Result<R> {
     })
 }
 
+fn estimate_pcode_bytes(instructions: &[InstructionPcode]) -> usize {
+    instructions.iter().fold(0usize, |total, instruction| {
+        let operations = instruction.operations.iter().fold(0usize, |sum, operation| {
+            let varnodes = operation.inputs.iter().map(|input| {
+                std::mem::size_of::<PcodeVarnode>() + input.space.len()
+            }).sum::<usize>();
+            let output = operation.output.as_ref().map_or(0, |value| {
+                std::mem::size_of::<PcodeVarnode>() + value.space.len()
+            });
+            sum.saturating_add(std::mem::size_of::<PcodeOperation>())
+                .saturating_add(varnodes).saturating_add(output)
+                .saturating_add(operation.space.as_ref().map_or(0, String::len))
+        });
+        total.saturating_add(std::mem::size_of::<InstructionPcode>())
+            .saturating_add(operations)
+    })
+}
+
 impl Program {
     pub fn open(path: &Path, language: Option<&str>) -> Result<Program> {
         Program::open_with(path, language, SymbolLoading::Full)
@@ -330,6 +360,7 @@ impl Program {
             string_sections: Vec::new(),
             code_sections: Vec::new(),
             entry: None,
+            pcode_cache: RefCell::new(PcodeCache::default()),
         };
         match symbols {
             SymbolInput::None => {}
@@ -1113,7 +1144,17 @@ impl Program {
     }
 
     pub fn pcode_range(&self, address: u64, byte_length: u64) -> Result<Vec<InstructionPcode>> {
-        panic_guard(|| {
+        Ok((*self.pcode_range_shared(address, byte_length)?).clone())
+    }
+
+    /// Return a shared translated P-code stream. Repeated analysis passes over
+    /// the same function avoid translating every machine instruction again.
+    pub fn pcode_range_shared(&self, address: u64, byte_length: u64) -> Result<Arc<Vec<InstructionPcode>>> {
+        let key = (address, byte_length);
+        if let Some(cached) = self.pcode_cache.borrow().entries.get(&key).cloned() {
+            return Ok(cached);
+        }
+        let translated = panic_guard(|| {
             let translate = self.architecture.translator()?;
             let mut current = self.code_address(address)?;
             let mut remaining = byte_length;
@@ -1140,12 +1181,30 @@ impl Program {
                 remaining = remaining.saturating_sub(length as u64);
             }
             Ok(instructions)
-        })
+        })?;
+        let translated = Arc::new(translated);
+        let entry_bytes = estimate_pcode_bytes(&translated);
+        if entry_bytes <= MAX_PCODE_CACHE_BYTES {
+            let mut cache = self.pcode_cache.borrow_mut();
+            while cache.estimated_bytes.saturating_add(entry_bytes) > MAX_PCODE_CACHE_BYTES {
+                let Some(old_key) = cache.entries.keys().next().copied() else { break };
+                if let Some(old) = cache.entries.remove(&old_key) {
+                    cache.estimated_bytes = cache.estimated_bytes.saturating_sub(estimate_pcode_bytes(&old));
+                }
+            }
+            cache.estimated_bytes = cache.estimated_bytes.saturating_add(entry_bytes);
+            cache.entries.insert(key, Arc::clone(&translated));
+        }
+        Ok(translated)
     }
 
     pub fn function_pcode(&mut self, address: u64) -> Result<Vec<InstructionPcode>> {
+        Ok((*self.function_pcode_shared(address)?).clone())
+    }
+
+    pub fn function_pcode_shared(&mut self, address: u64) -> Result<Arc<Vec<InstructionPcode>>> {
         let length = self.function_size(address)?;
-        self.pcode_range(address, length)
+        self.pcode_range_shared(address, length)
     }
 
     fn pcode_unguarded(&self, address: u64, instruction_count: usize) -> Result<Vec<InstructionPcode>> {
