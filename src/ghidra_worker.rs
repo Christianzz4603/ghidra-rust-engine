@@ -10,9 +10,17 @@ use serde_json::json;
 
 use crate::ghidra_host::{
     read_frame, write_frame, FunctionDescriptor, HostCommand, HostRequest, HostResponse,
-    ProgramSnapshot,
+    MemoryBlock, MemoryBlockChunk, ProgramSnapshot,
 };
 use crate::{Program, PseudocodeDecompiler};
+
+struct PendingBlock {
+    total_size: usize,
+    bytes: Vec<u8>,
+    readable: bool,
+    writable: bool,
+    executable: bool,
+}
 
 struct LoadedBlock {
     start: u64,
@@ -70,6 +78,9 @@ impl HydrationCounters {
 /// executable memory block is decoded lazily, then reused for later functions.
 pub struct GhidraWorker {
     snapshot: Option<ProgramSnapshot>,
+    pending_snapshot: Option<ProgramSnapshot>,
+    pending_blocks: std::collections::BTreeMap<u64, PendingBlock>,
+    pending_memory_bytes: usize,
     loaded_blocks: Vec<LoadedBlock>,
     hydration_report: serde_json::Value,
     shutdown: bool,
@@ -77,7 +88,7 @@ pub struct GhidraWorker {
 
 impl Default for GhidraWorker {
     fn default() -> Self {
-        Self { snapshot: None, loaded_blocks: Vec::new(), hydration_report: json!({}), shutdown: false }
+        Self { snapshot: None, pending_snapshot: None, pending_blocks: std::collections::BTreeMap::new(), pending_memory_bytes: 0, loaded_blocks: Vec::new(), hydration_report: json!({}), shutdown: false }
     }
 }
 
@@ -94,6 +105,9 @@ impl GhidraWorker {
                 "engine": env!("CARGO_PKG_VERSION"),
             })),
             HostCommand::OpenProgram(snapshot) => self.open_program(snapshot),
+            HostCommand::BeginProgram(snapshot) => self.begin_program(snapshot),
+            HostCommand::AddMemoryBlockChunk(chunk) => self.add_memory_block_chunk(chunk),
+            HostCommand::FinishProgram => self.finish_program(),
             HostCommand::Decompile { function_address } => self.decompile(function_address),
             HostCommand::Cancel { target_request_id } => Ok(json!({
                 "accepted": false,
@@ -109,6 +123,68 @@ impl GhidraWorker {
             Ok(payload) => HostResponse::success(id, payload),
             Err(error) => HostResponse::failure(id, error),
         }
+    }
+
+    fn begin_program(&mut self, snapshot: ProgramSnapshot) -> Result<serde_json::Value, String> {
+        if !snapshot.memory_blocks.is_empty() {
+            return Err("begin_program metadata must not include inline memory_blocks".into());
+        }
+        self.pending_snapshot = Some(snapshot);
+        self.pending_blocks.clear();
+        self.pending_memory_bytes = 0;
+        Ok(json!({"status":"receiving_memory","protocol":"chunked","max_block_bytes":8*1024*1024,"max_total_memory_bytes":64*1024*1024}))
+    }
+
+    fn add_memory_block_chunk(&mut self, chunk: MemoryBlockChunk) -> Result<serde_json::Value, String> {
+        if self.pending_snapshot.is_none() {
+            return Err("send begin_program before memory block chunks".into());
+        }
+        if chunk.offset == 0 {
+            if self.pending_blocks.contains_key(&chunk.start) {
+                return Err(format!("duplicate memory block start {:#x}", chunk.start));
+            }
+            self.pending_memory_bytes = self.pending_memory_bytes.checked_add(chunk.total_size)
+                .ok_or_else(|| "total memory size overflow".to_string())?;
+            if self.pending_memory_bytes > 64 * 1024 * 1024 {
+                return Err("streamed memory snapshot exceeds 64 MiB".into());
+            }
+            self.pending_blocks.insert(chunk.start, PendingBlock {
+                total_size: chunk.total_size, bytes: Vec::with_capacity(chunk.total_size),
+                readable: chunk.readable, writable: chunk.writable, executable: chunk.executable,
+            });
+        }
+        let block = self.pending_blocks.get_mut(&chunk.start)
+            .ok_or_else(|| format!("memory block {:#x} must begin with offset zero", chunk.start))?;
+        if block.total_size != chunk.total_size || block.bytes.len() != chunk.offset
+            || block.readable != chunk.readable || block.writable != chunk.writable || block.executable != chunk.executable {
+            return Err(format!("non-contiguous or inconsistent chunk for memory block {:#x}", chunk.start));
+        }
+        block.bytes.extend_from_slice(&chunk.bytes);
+        if block.bytes.len() != block.total_size && chunk.final_chunk {
+            return Err("memory block marked final before all bytes arrived".into());
+        }
+        if block.bytes.len() == block.total_size && !chunk.final_chunk {
+            return Err("completed memory block must set final_chunk".into());
+        }
+        Ok(json!({"status":"chunk_accepted","start":format!("{:#x}",chunk.start),"received":block.bytes.len(),"total":block.total_size,"complete":chunk.final_chunk}))
+    }
+
+    fn finish_program(&mut self) -> Result<serde_json::Value, String> {
+        let mut snapshot = self.pending_snapshot.take()
+            .ok_or_else(|| "send begin_program before finish_program".to_string())?;
+        if self.pending_blocks.is_empty() {
+            return Err("streamed snapshot contains no memory blocks".into());
+        }
+        let mut blocks = Vec::with_capacity(self.pending_blocks.len());
+        for (start, pending) in std::mem::take(&mut self.pending_blocks) {
+            if pending.bytes.len() != pending.total_size {
+                return Err(format!("memory block {start:#x} is incomplete: {} of {} bytes", pending.bytes.len(), pending.total_size));
+            }
+            blocks.push(MemoryBlock { start, bytes: pending.bytes, readable: pending.readable, writable: pending.writable, executable: pending.executable });
+        }
+        self.pending_memory_bytes = 0;
+        snapshot.memory_blocks = blocks;
+        self.open_program(snapshot)
     }
 
     fn open_program(&mut self, snapshot: ProgramSnapshot) -> Result<serde_json::Value, String> {
@@ -216,6 +292,9 @@ impl GhidraWorker {
         let language_id = snapshot.language_id.clone();
         let compiler_spec_id = snapshot.compiler_spec_id.clone();
         let summary = report.to_json();
+        self.pending_snapshot = None;
+        self.pending_blocks.clear();
+        self.pending_memory_bytes = 0;
         self.snapshot = Some(snapshot);
         self.loaded_blocks = loaded_blocks;
         self.hydration_report = summary.clone();

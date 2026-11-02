@@ -11,6 +11,7 @@ use serde_json::{Value, json};
 pub const HOST_PROTOCOL_VERSION: u16 = 1;
 pub const MAX_FRAME_BYTES: usize = 16 * 1024 * 1024;
 pub const MAX_MEMORY_BLOCK_BYTES: usize = 8 * 1024 * 1024;
+pub const MAX_MEMORY_CHUNK_BYTES: usize = 4 * 1024 * 1024;
 pub const MAX_TOTAL_MEMORY_BYTES: usize = 64 * 1024 * 1024;
 pub const MAX_MEMORY_BLOCKS: usize = 4096;
 pub const MAX_FUNCTIONS: usize = 100_000;
@@ -101,9 +102,24 @@ pub struct ProgramSnapshot {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MemoryBlockChunk {
+    pub start: u64,
+    pub total_size: usize,
+    pub offset: usize,
+    pub bytes: Vec<u8>,
+    pub readable: bool,
+    pub writable: bool,
+    pub executable: bool,
+    pub final_chunk: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum HostCommand {
     Ping,
     OpenProgram(ProgramSnapshot),
+    BeginProgram(ProgramSnapshot),
+    AddMemoryBlockChunk(MemoryBlockChunk),
+    FinishProgram,
     Decompile { function_address: u64 },
     Cancel { target_request_id: String },
     Shutdown,
@@ -146,6 +162,33 @@ impl HostRequest {
         let command = match command_name {
             "ping" => HostCommand::Ping,
             "open_program" => HostCommand::OpenProgram(parse_snapshot(payload)?),
+            "begin_program" => HostCommand::BeginProgram(parse_snapshot(payload)?),
+            "add_memory_block_chunk" => {
+                let total_size = usize::try_from(required_u64(payload, "total_size")?)
+                    .map_err(|_| "memory block total_size does not fit usize")?;
+                let offset = usize::try_from(required_u64(payload, "offset")?)
+                    .map_err(|_| "memory block offset does not fit usize")?;
+                if total_size == 0 || total_size > MAX_MEMORY_BLOCK_BYTES || offset > total_size {
+                    return Err("invalid memory block chunk range".into());
+                }
+                let bytes = decode_hex(required_string(payload, "bytes_hex")?, MAX_MEMORY_CHUNK_BYTES)?;
+                let end = offset.checked_add(bytes.len()).ok_or("memory chunk range overflow")?;
+                if bytes.is_empty() || end > total_size {
+                    return Err("memory block chunk exceeds declared block size".into());
+                }
+                let final_chunk = optional_bool(payload, "final_chunk", false)?;
+                if final_chunk != (end == total_size) {
+                    return Err("final_chunk must be true exactly when the declared block is complete".into());
+                }
+                HostCommand::AddMemoryBlockChunk(MemoryBlockChunk {
+                    start: required_u64(payload, "start")?, total_size, offset, bytes,
+                    readable: optional_bool(payload, "readable", true)?,
+                    writable: optional_bool(payload, "writable", false)?,
+                    executable: optional_bool(payload, "executable", false)?,
+                    final_chunk,
+                })
+            }
+            "finish_program" => HostCommand::FinishProgram,
             "decompile" => HostCommand::Decompile {
                 function_address: required_u64(payload, "function_address")?,
             },
@@ -523,6 +566,24 @@ mod tests {
         assert_eq!(function.parameters[0].name, "value");
         assert_eq!(function.parameters[0].type_name, "unsigned int");
         assert_eq!(function.parameters[0].storage.as_deref(), Some("RDI:4"));
+    }
+
+    #[test]
+    fn parses_streamed_memory_block_chunks() {
+        let frame = br#"{"protocol_version":1,"request_id":"chunk","command":"add_memory_block_chunk","payload":{"start":"0x1000","total_size":8,"offset":4,"bytes_hex":"aabbccdd","readable":true,"executable":true,"final_chunk":true}}"#;
+        let request = HostRequest::parse_frame(frame).unwrap();
+        let HostCommand::AddMemoryBlockChunk(chunk) = request.command else { panic!("expected chunk") };
+        assert_eq!(chunk.start, 0x1000);
+        assert_eq!(chunk.total_size, 8);
+        assert_eq!(chunk.offset, 4);
+        assert_eq!(chunk.bytes, vec![0xaa, 0xbb, 0xcc, 0xdd]);
+        assert!(chunk.final_chunk && chunk.executable);
+    }
+
+    #[test]
+    fn rejects_inconsistent_final_memory_chunk() {
+        let frame = br#"{"protocol_version":1,"request_id":"chunk","command":"add_memory_block_chunk","payload":{"start":4096,"total_size":8,"offset":0,"bytes_hex":"aabb","final_chunk":true}}"#;
+        assert!(HostRequest::parse_frame(frame).unwrap_err().contains("final_chunk"));
     }
 
     #[test]
