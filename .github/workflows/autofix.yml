@@ -1,0 +1,55 @@
+name: Autofix (temporary)
+
+on:
+  push:
+    branches: [fix/clippy-lints]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  autofix:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain
+        run: rustup toolchain install 1.98.1 --profile minimal --component clippy,rustfmt
+
+      - name: Apply clippy autofixes
+        continue-on-error: true
+        run: cargo clippy --fix --allow-dirty --allow-no-vcs --all-targets
+
+      - name: Apply rustfmt
+        continue-on-error: true
+        run: cargo fmt
+
+      - name: Commit autofixes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A -- src tests examples
+          if ! git diff --cached --quiet; then
+            git commit -m "Apply clippy and rustfmt autofixes"
+            git push
+          fi
+
+      - name: Write report
+        continue-on-error: true
+        run: |
+          {
+            echo "== CLIPPY REMAINING =="
+            cargo clippy --all-targets --message-format=short -- -D warnings 2>&1 | grep -E "^(src|tests|examples).*(error|warning)|could not compile" | head -60
+            echo "== SNIPPETS =="
+            echo "-- dex.rs smali_type"; grep -n "smali_type" src/dex.rs | head
+            sed -n "$(grep -n 'fn smali_type' src/dex.rs | head -1 | cut -d: -f1),+14p" src/dex.rs
+            echo "-- printing.rs decompile_ok"; grep -n "decompile_ok" src/ifacedecomp/printing.rs
+            echo "-- object_arch.rs top-level items"; grep -nE "^(#\[cfg\(test\)\]|mod |fn |pub fn |impl |pub struct |pub static |struct |static |use )" src/object_arch.rs
+            echo "== DATATEST (boolless) =="
+            DATATESTS_FILTER=boolless cargo test --test datatests -- --nocapture 2>&1 | grep -v "^   Compiling" | cut -c1-300 | head -80
+          } > autofix-report.txt 2>&1
+          git add -f autofix-report.txt
+          git commit -m "Add autofix report (temporary)" || true
+          git push
