@@ -33,9 +33,11 @@ relocations applied after loading, or per-program compiler-spec overrides.
 
 ## Host protocol roadmap
 
-The next integration layer should replace the one-shot reconstruct invocation with a
-versioned, length-bounded JSON-lines or framed-binary protocol. The Java side should
-provide Ghidra-owned facts through a stable adapter interface:
+The Rust side now defines the first versioned JSON-lines protocol in `src/ghidra_host.rs`. It parses `ping`, `open_program`, `decompile`, `cancel` and `shutdown` requests and encodes structured responses. `open_program` snapshots carry language/compiler-spec IDs, endianness, address spaces, memory blocks, functions, symbols and relocations. Memory blocks use hexadecimal bytes and explicit read/write/execute flags.
+
+The parser enforces a 16 MiB frame limit, 8 MiB per-block limit, 64 MiB total memory limit, bounded metadata arrays, non-overlapping memory ranges, and request-ID/version validation. The Java Script Manager adapter still uses the legacy one-shot CLI invocation: it does not yet emit these protocol frames, and the Rust module does not yet run a persistent worker loop or hydrate a `Program` from snapshots. Those are the next integration tasks.
+
+The Java side should provide Ghidra-owned facts through a stable adapter interface:
 
 - program identity, language/compiler-spec IDs, endianness and address spaces;
 - memory blocks and initialized bytes, with explicit permissions and holes;

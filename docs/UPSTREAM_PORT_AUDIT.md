@@ -21,9 +21,9 @@ Ghidra's Java-facing host integration and development utilities.
 | Ghidra graph-based function signatures | signature | Initial independent implementation: operation, block-shape, call-shape, normalized-constant and linear def-use features; bounded binary format and weighted similarity. Not yet exact Ghidra feature parity |
 | Dynamic rule compiler and unification | dynamic, modelrules, ruleaction | Existing runtime/rule infrastructure; complete Ghidra rule compiler and unification DSL remain unverified/missing |
 | SLEIGH source compiler | pcodecompile and parser components | Runtime/compiled-SLA support exists; full slgh_compile/slghparse/slghscan source compiler pipeline remains missing |
-| Ghidra Java/native host bridge | integration/ghidra-scripts/DecompileWithRustEngine.java | Initial Script Manager bridge only; no full database snapshot protocol |
+| Ghidra Java/native host bridge | integration/ghidra-scripts/DecompileWithRustEngine.java; ghidra_host | Initial Script Manager bridge plus bounded JSON-lines protocol types and snapshot validation; no complete worker/Java transport yet |
 | Ghidra-native adapters | No complete direct equivalents | Missing: ghidra_arch, inject_ghidra, ghidra_translate, loadimage_ghidra, typegrp_ghidra, database_ghidra, ghidra_context, cpool_ghidra, ghidra_process, comment_ghidra, string_ghidra, signature_ghidra |
-| Java process/result protocol | Isolated CLI process invocation from GhidraScript | Partial; persistent worker and structured host protocol remain missing |
+| Java process/result protocol | ghidra_host request/response framing and GhidraScript CLI bridge | Partial; Java client, persistent worker loop, snapshot hydration and structured pseudocode transport remain missing |
 | Console shell, sample program and C++ test driver | Rust CLI/examples/tests | Replaced with Rust-native interfaces |
 
 This mapping is architectural, not proof of behavioral equivalence. Exact parity
@@ -38,9 +38,7 @@ requires the original executable and assumes its address mapping matches the Ghi
 program. It does not transfer database memory, overlays, patched bytes, symbols,
 relocations, compiler-spec state or datatypes.
 
-A complete host integration needs a versioned, bounded IPC protocol and adapters
-for architecture, image loading, database-backed symbols/types, context, injections,
-comments/strings and signature metadata. Keep the worker isolated from Ghidra's UI JVM.
+The Rust side now has a versioned, bounded JSON-lines protocol model (`src/ghidra_host.rs`) with `ping`, `open_program`, `decompile`, `cancel` and `shutdown` commands. Snapshot validation bounds frames to 16 MiB, each memory block to 8 MiB and total memory to 64 MiB, rejects overlapping blocks and validates function/symbol/relocation metadata. The current Java script does not yet speak this protocol, and the Rust worker does not yet hydrate a live Program from a snapshot. Full integration still needs the Java client, persistent worker loop and adapters for architecture, image loading, database-backed symbols/types, context, injections, comments/strings and signature metadata. Keep the worker isolated from Ghidra's UI JVM.
 
 ## Highest-value remaining gaps
 
