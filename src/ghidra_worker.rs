@@ -160,7 +160,7 @@ impl GhidraWorker {
                 } else {
                     let qualified_name = symbol.namespace.as_ref().map(|namespace| format!("{namespace}::{}", symbol.name))
                         .unwrap_or_else(|| symbol.name.clone());
-                    match program.import_data_symbol(symbol.address, &qualified_name, symbol.size) {
+                    match program.import_typed_data_symbol(symbol.address, &qualified_name, symbol.size, symbol.type_name.as_deref()) {
                         Ok(()) => report.data_symbols_applied += 1,
                         Err(error) => failures.push(format!("data symbol {} at {:#x}: {error}", symbol.name, symbol.address)),
                     }
