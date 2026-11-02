@@ -476,6 +476,19 @@ mod tests {
     }
 
     #[test]
+    fn parses_extended_database_metadata() {
+        let frame = br#"{"protocol_version":1,"request_id":"db","command":"open_program","payload":{"name":"db-snapshot","language_id":"x86:LE:64:default","compiler_spec_id":"gcc","endianness":"little","memory_blocks":[{"start":"0x1000","bytes_hex":"90c3","executable":true}],"functions":[{"entry":"0x1000","name":"entry","body_size":2}],"symbols":[{"address":"0x1000","name":"entry","kind":"function","size":1,"namespace":"root","type_name":"void ()"}],"relocations":[{"address":"0x1001","kind":"R_X86_64_PC32","symbol":"target","addend":-4}],"comments":[{"address":"0x1000","function_entry":"0x1000","kind":"plate","text":"entry point"}],"references":[{"from":"0x1000","to":"0x1001","kind":"call","is_primary":true}],"data_types":[{"name":"size_t","kind":"typedef","size":8,"signed":false}],"context_values":[{"address":"0x1000","register":"mode","value":1}]}}"#;
+        let request = HostRequest::parse_frame(frame).unwrap();
+        let HostCommand::OpenProgram(snapshot) = request.command else { panic!("expected open_program") };
+        assert_eq!(snapshot.symbols[0].namespace.as_deref(), Some("root"));
+        assert_eq!(snapshot.symbols[0].size, 1);
+        assert_eq!(snapshot.comments[0].kind, "plate");
+        assert_eq!(snapshot.references[0].to, 0x1001);
+        assert_eq!(snapshot.data_types[0].name, "size_t");
+        assert_eq!(snapshot.context_values[0].register, "mode");
+    }
+
+    #[test]
     fn rejects_overlapping_memory_blocks() {
         let frame = br#"{"protocol_version":1,"request_id":"open","command":"open_program","payload":{"name":"sample","language_id":"x","compiler_spec_id":"x","endianness":"little","memory_blocks":[{"start":4096,"bytes_hex":"010203"},{"start":4098,"bytes_hex":"04"}]}}"#;
         assert!(HostRequest::parse_frame(frame).unwrap_err().contains("overlapping"));

@@ -140,10 +140,10 @@ pub use pseudocode::{DecompileBatch, DecompileFailure, FunctionPseudocode, Pseud
 pub use flirt::{FlirtAnalyzer, FlirtMatch, FlirtOptions, FlirtReport};
 pub use lumina::LuminaClient;
 pub use signature::{FunctionSignature, SignatureFeature, SignatureKind, SignatureSettings};
-pub use ghidra_host::{Endianness, FunctionDescriptor, HostCommand, HostRequest, HostResponse, MemoryBlock, ProgramSnapshot, RelocationDescriptor, SymbolDescriptor};
+pub use ghidra_host::{CommentDescriptor, ContextValueDescriptor, DataTypeDescriptor, Endianness, FunctionDescriptor, HostCommand, HostRequest, HostResponse, MemoryBlock, ProgramSnapshot, ReferenceDescriptor, RelocationDescriptor, SymbolDescriptor};
 pub use program::{
     CallEdge, CodeScanSummary, CodeSectionSummary, DataEntry, DisassemblyGap, DisassemblyReport, FunctionEntry,
-    FunctionSource, Instruction, InstructionPcode, PcodeOperation, PcodeVarnode, Program, StringEntry, SymbolLoading,
+    FunctionSource, ImportedDataType, Instruction, InstructionPcode, PcodeOperation, PcodeVarnode, Program, ProgramReference, ProgramRelocation, StringEntry, SymbolLoading,
 };
 
 pub use dex::{Apk, DexClass, DexFile, DexMethod};
