@@ -341,9 +341,9 @@ fn panic_guard<R>(run: impl FnOnce() -> Result<R>) -> Result<R> {
     })
 }
 
-fn estimate_pcode_bytes(instructions: &[InstructionPcode]) -> usize {
+fn estimate_pcode_bytes(instructions: &[InstructionPcode], instruction_capacity: usize) -> usize {
     instructions.iter().fold(
-        instructions.capacity().saturating_mul(std::mem::size_of::<InstructionPcode>()),
+        instruction_capacity.saturating_mul(std::mem::size_of::<InstructionPcode>()),
         |total, instruction| {
             let operations = instruction.operations.iter().fold(
                 instruction.operations.capacity().saturating_mul(std::mem::size_of::<PcodeOperation>()),
@@ -1388,17 +1388,17 @@ impl Program {
             Ok(instructions)
         })?;
         let translated = Arc::new(translated);
-        let entry_bytes = estimate_pcode_bytes(&translated);
+        let entry_bytes = estimate_pcode_bytes(&translated, translated.capacity());
         if entry_bytes <= MAX_PCODE_CACHE_BYTES {
             let mut cache = self.pcode_cache.borrow_mut();
             while cache.estimated_bytes.saturating_add(entry_bytes) > MAX_PCODE_CACHE_BYTES {
                 let Some(old_key) = cache.order.pop_front() else { break };
                 if let Some(old) = cache.entries.remove(&old_key) {
-                    cache.estimated_bytes = cache.estimated_bytes.saturating_sub(estimate_pcode_bytes(&old));
+                    cache.estimated_bytes = cache.estimated_bytes.saturating_sub(estimate_pcode_bytes(&old, old.capacity()));
                 }
             }
             if let Some(previous) = cache.entries.insert(key, Arc::clone(&translated)) {
-                cache.estimated_bytes = cache.estimated_bytes.saturating_sub(estimate_pcode_bytes(&previous));
+                cache.estimated_bytes = cache.estimated_bytes.saturating_sub(estimate_pcode_bytes(&previous, previous.capacity()));
                 cache.order.retain(|item| *item != key);
             }
             cache.estimated_bytes = cache.estimated_bytes.saturating_add(entry_bytes);
