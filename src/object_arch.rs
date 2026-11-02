@@ -1,3 +1,4 @@
+use std::io::Read;
 use std::sync::atomic::{AtomicI64, Ordering as AtomicOrdering};
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
@@ -395,6 +396,20 @@ fn parse_binary(data: &[u8]) -> ParsedObject {
     }
 }
 
+fn is_supported_object_magic(magic: [u8; 4]) -> bool {
+    magic == *b"\\x7fELF"
+        || &magic[..2] == b"MZ"
+        || matches!(magic,
+            [0xce, 0xfa, 0xed, 0xfe] | [0xfe, 0xed, 0xfa, 0xce]
+            | [0xcf, 0xfa, 0xed, 0xfe] | [0xfe, 0xed, 0xfa, 0xcf])
+}
+
+fn is_object_file_path(filename: &str) -> bool {
+    let Ok(mut file) = std::fs::File::open(filename) else { return false };
+    let mut magic = [0u8; 4];
+    file.read_exact(&mut magic).is_ok() && is_supported_object_magic(magic)
+}
+
 pub fn is_object_file(data: &[u8]) -> bool {
     matches!(
         object::File::parse(data),
@@ -426,7 +441,11 @@ impl ObjectLoadImage {
         }
     }
 
-    pub fn from_bytes(filename: &str, target: &str, bytes: Arc<Vec<u8>>) -> Result<ObjectLoadImage> {
+    pub fn from_bytes(filename: &str, target: &str, bytes: Vec<u8>) -> Result<ObjectLoadImage> {
+        Self::from_shared_bytes(filename, target, Arc::new(bytes))
+    }
+
+    pub(crate) fn from_shared_bytes(filename: &str, target: &str, bytes: Arc<Vec<u8>>) -> Result<ObjectLoadImage> {
         let image = ObjectLoadImage::new(filename, target);
         image.open_bytes(bytes)?;
         Ok(image)
@@ -755,10 +774,7 @@ impl ArchitectureCapability for ObjectArchitectureCapability {
     }
 
     fn is_file_match(&self, filename: &str) -> bool {
-        match std::fs::read(filename) {
-            Ok(bytes) => is_object_file(&bytes),
-            Err(_) => false,
-        }
+        is_object_file_path(filename)
     }
 
     fn is_xml_match(&self, doc: &Document) -> bool {
@@ -850,7 +866,7 @@ impl SleighArchitectureHooks for ObjectArchitecture {
             target
         };
         let ldr = match &self.image_bytes {
-            Some(bytes) => ObjectLoadImage::from_bytes(&self.sleigh.get_filename(), &format, Arc::clone(bytes))?,
+            Some(bytes) => ObjectLoadImage::from_shared_bytes(&self.sleigh.get_filename(), &format, Arc::clone(bytes))?,
             None => {
                 let ldr = ObjectLoadImage::new(&self.sleigh.get_filename(), &format);
                 ldr.open()?;

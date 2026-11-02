@@ -19,6 +19,17 @@ pub struct PseudocodeOptions {
     pub discover_functions: bool,
 }
 
+impl PseudocodeOptions {
+    pub fn resource_bounded() -> Self {
+        Self {
+            include_empty_lines: true,
+            max_functions: Some(5_000),
+            max_output_bytes: Some(256 * 1024),
+            discover_functions: true,
+        }
+    }
+}
+
 impl Default for PseudocodeOptions {
     fn default() -> Self {
         Self {
@@ -92,6 +103,10 @@ pub struct PseudocodeDecompiler {
 impl PseudocodeDecompiler {
     pub fn new(options: PseudocodeOptions) -> Self {
         Self { options }
+    }
+
+    pub fn resource_bounded() -> Self {
+        Self::new(PseudocodeOptions::resource_bounded())
     }
 
     pub fn options(&self) -> &PseudocodeOptions {
@@ -178,6 +193,14 @@ impl PseudocodeDecompiler {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn resource_bounded_profile_caps_batch_size_and_output() {
+        let options = PseudocodeOptions::resource_bounded();
+        assert_eq!(options.max_functions, Some(5_000));
+        assert_eq!(options.max_output_bytes, Some(256 * 1024));
+        assert!(options.discover_functions);
+    }
 
     #[test]
     fn defaults_are_unbounded_and_discover_functions() {

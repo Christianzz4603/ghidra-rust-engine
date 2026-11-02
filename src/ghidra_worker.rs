@@ -13,6 +13,7 @@ use crate::ghidra_host::{
     MemoryBlock, MemoryBlockChunk, ProgramSnapshot,
 };
 use crate::{Program, PseudocodeDecompiler};
+use crate::pseudocode::PseudocodeOptions;
 
 struct PendingBlock {
     total_size: usize,
@@ -322,7 +323,7 @@ impl GhidraWorker {
         let qualified_name = function.namespace.as_ref().map(|namespace| format!("{namespace}::{}", function.name)).unwrap_or_else(|| function.name.clone());
         loaded.program.ensure_function_at(address, Some(&qualified_name))
             .map_err(|error| format!("could not register function {} at {address:#x}: {error}", qualified_name))?;
-        let pseudocode = PseudocodeDecompiler::default()
+        let pseudocode = PseudocodeDecompiler::resource_bounded()
             .decompile(&mut loaded.program, address)
             .map_err(|error| format!("decompilation failed for {} at {address:#x}: {error}", function.name))?;
         let lines: Vec<_> = pseudocode.lines.iter().map(|line| json!({
