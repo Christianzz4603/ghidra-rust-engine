@@ -81,7 +81,7 @@ struct ObjectLoadImageState {
 pub struct ObjectLoadImage {
     filename: String,
     target: String,
-    data: RwLock<Vec<u8>>,
+    data: RwLock<Arc<Vec<u8>>>,
     state: RwLock<ObjectLoadImageState>,
 }
 
@@ -412,7 +412,7 @@ impl ObjectLoadImage {
         ObjectLoadImage {
             filename: filename.to_string(),
             target: target.to_string(),
-            data: RwLock::new(Vec::new()),
+            data: RwLock::new(Arc::new(Vec::new())),
             state: RwLock::new(ObjectLoadImageState {
                 parsed: None,
                 spaceid: None,
@@ -426,7 +426,7 @@ impl ObjectLoadImage {
         }
     }
 
-    pub fn from_bytes(filename: &str, target: &str, bytes: Vec<u8>) -> Result<ObjectLoadImage> {
+    pub fn from_bytes(filename: &str, target: &str, bytes: Arc<Vec<u8>>) -> Result<ObjectLoadImage> {
         let image = ObjectLoadImage::new(filename, target);
         image.open_bytes(bytes)?;
         Ok(image)
@@ -444,16 +444,16 @@ impl ObjectLoadImage {
         if self.read_state().parsed.is_some() {
             return Err(Error::Lowlevel("BFD library did not initialize".to_string()));
         }
-        let bytes = std::fs::read(&self.filename)
-            .map_err(|_| Error::Lowlevel(format!("Unable to open image file: {}", self.filename)))?;
+        let bytes = Arc::new(std::fs::read(&self.filename)
+            .map_err(|_| Error::Lowlevel(format!("Unable to open image file: {}", self.filename)))?);
         self.open_bytes(bytes)
     }
 
-    fn open_bytes(&self, bytes: Vec<u8>) -> Result<()> {
+    fn open_bytes(&self, bytes: Arc<Vec<u8>>) -> Result<()> {
         let parsed = if self.target == "binary" {
-            parse_binary(&bytes)
+            parse_binary(bytes.as_slice())
         } else {
-            match parse_object(&bytes) {
+            match parse_object(bytes.as_slice()) {
                 Some(parsed) => parsed,
                 None => {
                     return Err(Error::Lowlevel(format!(
@@ -785,7 +785,7 @@ pub struct ObjectArchitecture {
     pub sleigh: SleighArchitecture,
     adjustvma: AtomicI64,
     loader: RwLock<Option<Arc<ObjectLoadImage>>>,
-    image_bytes: Option<Vec<u8>>,
+    image_bytes: Option<Arc<Vec<u8>>>,
 }
 
 impl ObjectArchitecture {
@@ -800,7 +800,7 @@ impl ObjectArchitecture {
 
     pub fn with_bytes(fname: &str, targ: &str, bytes: Vec<u8>) -> ObjectArchitecture {
         ObjectArchitecture {
-            image_bytes: Some(bytes),
+            image_bytes: Some(Arc::new(bytes)),
             ..ObjectArchitecture::new(fname, targ, None)
         }
     }
@@ -850,7 +850,7 @@ impl SleighArchitectureHooks for ObjectArchitecture {
             target
         };
         let ldr = match &self.image_bytes {
-            Some(bytes) => ObjectLoadImage::from_bytes(&self.sleigh.get_filename(), &format, bytes.clone())?,
+            Some(bytes) => ObjectLoadImage::from_bytes(&self.sleigh.get_filename(), &format, Arc::clone(bytes))?,
             None => {
                 let ldr = ObjectLoadImage::new(&self.sleigh.get_filename(), &format);
                 ldr.open()?;

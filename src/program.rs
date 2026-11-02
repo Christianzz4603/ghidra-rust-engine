@@ -26,7 +26,11 @@ use crate::translate::{AddrSpaceManager, AssemblyEmit, PcodeEmit};
 use crate::types::TypeMetatype;
 use crate::xml::DocumentStorage;
 
-const MAX_PCODE_CACHE_BYTES: usize = 64 * 1024 * 1024;
+const MAX_PCODE_CACHE_BYTES: usize = 16 * 1024 * 1024;
+const MAX_PCODE_RANGE_BYTES: u64 = 4 * 1024 * 1024;
+const MAX_PCODE_INSTRUCTIONS: usize = 250_000;
+const MAX_DISASSEMBLY_BYTES: u64 = 4 * 1024 * 1024;
+const MAX_DECOMPILE_FUNCTION_BYTES: u64 = 1024 * 1024;
 
 #[derive(Default)]
 struct PcodeCache {
@@ -1093,6 +1097,9 @@ impl Program {
     /// AArch64 is resynchronized on four-byte boundaries. Other architectures
     /// use one-byte resynchronization because their instruction widths may vary.
     pub fn disassemble_range_recovering(&self, address: u64, byte_length: u64) -> Result<DisassemblyReport> {
+        if byte_length > MAX_DISASSEMBLY_BYTES {
+            return Err(Error::Lowlevel(format!("disassembly range {byte_length} bytes exceeds safe limit {MAX_DISASSEMBLY_BYTES}")));
+        }
         panic_guard(|| {
             let translate = self.architecture.translator()?;
             let mut current = self.code_address(address)?;
@@ -1109,6 +1116,9 @@ impl Program {
             };
 
             while remaining > 0 {
+                if instructions.len() >= MAX_PCODE_INSTRUCTIONS {
+                    return Err(Error::Lowlevel(format!("disassembly instruction count exceeds safe limit {MAX_PCODE_INSTRUCTIONS}")));
+                }
                 let mut text = InstructionText {
                     mnemonic: String::new(),
                     operands: String::new(),
@@ -1252,15 +1262,21 @@ impl Program {
     }
 
     pub fn disassemble_range(&self, address: u64, byte_length: u64) -> Result<Vec<Instruction>> {
+        if byte_length > MAX_DISASSEMBLY_BYTES {
+            return Err(Error::Lowlevel(format!("disassembly range {byte_length} bytes exceeds safe limit {MAX_DISASSEMBLY_BYTES}")));
+        }
         panic_guard(|| {
             let translate = self.architecture.translator()?;
             let mut current = self.code_address(address)?;
             let mut remaining = byte_length;
             // Most supported targets use instructions of at least four bytes.
             // Cap the estimate to avoid huge speculative allocations on malformed inputs.
-            let estimated = usize::try_from((byte_length / 4).min(1_000_000)).unwrap_or(0);
+            let estimated = usize::try_from((byte_length / 4).min(MAX_PCODE_INSTRUCTIONS as u64)).unwrap_or(0);
             let mut instructions = Vec::with_capacity(estimated);
             while remaining > 0 {
+                if instructions.len() >= MAX_PCODE_INSTRUCTIONS {
+                    return Err(Error::Lowlevel(format!("disassembly instruction count exceeds safe limit {MAX_PCODE_INSTRUCTIONS}")));
+                }
                 let mut text = InstructionText {
                     mnemonic: String::new(),
                     operands: String::new(),
@@ -1301,6 +1317,9 @@ impl Program {
     /// Return a shared translated P-code stream. Repeated analysis passes over
     /// the same function avoid translating every machine instruction again.
     pub fn pcode_range_shared(&self, address: u64, byte_length: u64) -> Result<Arc<Vec<InstructionPcode>>> {
+        if byte_length > MAX_PCODE_RANGE_BYTES {
+            return Err(Error::Lowlevel(format!("P-code range {byte_length} bytes exceeds safe limit {MAX_PCODE_RANGE_BYTES}")));
+        }
         let key = (address, byte_length);
         if let Some(cached) = self.pcode_cache.borrow().entries.get(&key).cloned() {
             return Ok(cached);
@@ -1309,9 +1328,12 @@ impl Program {
             let translate = self.architecture.translator()?;
             let mut current = self.code_address(address)?;
             let mut remaining = byte_length;
-            let estimated = usize::try_from((byte_length / 4).min(1_000_000)).unwrap_or(0);
+            let estimated = usize::try_from((byte_length / 4).min(MAX_PCODE_INSTRUCTIONS as u64)).unwrap_or(0);
             let mut instructions = Vec::with_capacity(estimated);
             while remaining > 0 {
+                if instructions.len() >= MAX_PCODE_INSTRUCTIONS {
+                    return Err(Error::Lowlevel(format!("P-code instruction count exceeds safe limit {MAX_PCODE_INSTRUCTIONS}")));
+                }
                 let mut collector = OperationCollector {
                     manager: &self.architecture.manager,
                     operations: Vec::new(),
@@ -1359,6 +1381,9 @@ impl Program {
     }
 
     fn pcode_unguarded(&self, address: u64, instruction_count: usize) -> Result<Vec<InstructionPcode>> {
+        if instruction_count > MAX_PCODE_INSTRUCTIONS {
+            return Err(Error::Lowlevel(format!("requested P-code instruction count {instruction_count} exceeds safe limit {MAX_PCODE_INSTRUCTIONS}")));
+        }
         let translate = self.architecture.translator()?;
         let mut current = self.code_address(address)?;
         let mut instructions = Vec::with_capacity(instruction_count);
@@ -1399,6 +1424,10 @@ impl Program {
         self.architecture.with_function(sym, |function, architecture| {
             if function.has_no_code() {
                 return Err(Error::Lowlevel(format!("No code for {}", function.get_name())));
+            }
+            let body_size = function.get_size().max(0) as u64;
+            if body_size > MAX_DECOMPILE_FUNCTION_BYTES {
+                return Err(Error::Lowlevel(format!("function {} at {address:#x} is {body_size} bytes, exceeding safe decompilation limit {MAX_DECOMPILE_FUNCTION_BYTES}", function.get_name())));
             }
             if function.is_proc_started() {
                 architecture.clear_analysis(function);

@@ -9,6 +9,9 @@ use crate::op::PcodeOp;
 use crate::oplist::LinkedNode;
 use crate::space::SpaceRef;
 
+const MAX_DISCOVERED_FUNCTIONS: usize = 100_000;
+const MAX_ARM64_PROLOGUE_CANDIDATES: usize = 100_000;
+
 pub(super) struct FlowFacts {
     pub(super) call_targets: Vec<u64>,
     pub(super) constants: BTreeSet<u64>,
@@ -40,7 +43,7 @@ impl Program {
             while let Some(op) = position {
                 let operation = function.op(op);
                 let address = operation.get_addr().get_offset();
-                facts.body = facts.body.start.min(address)..facts.body.end.max(address + 1);
+                facts.body = facts.body.start.min(address)..facts.body.end.max(address.saturating_add(1));
                 for slot in 0..operation.num_input() {
                     let input = function.vn(operation.get_in(slot));
                     if input.is_constant() {
@@ -79,6 +82,7 @@ impl Program {
         seeds.extend(self.arm64_prologue_seeds()?);
         seeds.sort_unstable();
         seeds.dedup();
+        seeds.truncate(MAX_DISCOVERED_FUNCTIONS);
         super::panic_guard(|| self.discover_from(seeds))
     }
 
@@ -108,7 +112,9 @@ impl Program {
                     let offset = index * 4;
                     let word = u32::from_le_bytes(bytes[offset..offset + 4].try_into().unwrap());
                     if word & STP_FP_LR_PREINDEX_MASK == STP_FP_LR_PREINDEX {
-                        candidates.push(chunk_start + offset as u64);
+                        if candidates.len() < MAX_ARM64_PROLOGUE_CANDIDATES {
+                            candidates.push(chunk_start + offset as u64);
+                        }
                         continue;
                     }
                     if word != PACIASP && word != BTI_C {
@@ -126,7 +132,9 @@ impl Program {
                         following & STP_FP_LR_PREINDEX_MASK == STP_FP_LR_PREINDEX
                     });
                     if has_frame_setup {
-                        candidates.push(chunk_start + offset as u64);
+                        if candidates.len() < MAX_ARM64_PROLOGUE_CANDIDATES {
+                            candidates.push(chunk_start + offset as u64);
+                        }
                     }
                 }
                 chunk_start = (chunk_start + CHUNK_SIZE) & !3;
@@ -139,6 +147,9 @@ impl Program {
         let mut pending = seeds;
         let mut visited = BTreeSet::new();
         while let Some(address) = pending.pop() {
+            if visited.len() >= MAX_DISCOVERED_FUNCTIONS {
+                break;
+            }
             if !visited.insert(address) || !self.is_code_address(address) {
                 continue;
             }
