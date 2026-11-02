@@ -15,6 +15,7 @@ use crate::callgraph::CallGraph;
 use crate::comment::{Comment, CommentDatabase};
 use crate::database::{Database, ScopeId, SymbolId};
 use crate::error::{Error, Result};
+use crate::globalcontext::ContextDatabase;
 use crate::loadimage::LoadImageFunc;
 use crate::object_arch::{ObjectArchitecture, is_object_file};
 use crate::opcodes::{OpCode, get_opname};
@@ -37,6 +38,9 @@ pub struct Program {
     architecture: Box<Architecture>,
     functions: BTreeMap<SymbolId, FunctionRecord>,
     data: BTreeMap<u64, DataRecord>,
+    references: BTreeMap<u64, Vec<ProgramReference>>,
+    relocations: BTreeMap<u64, ProgramRelocation>,
+    imported_types: BTreeMap<String, ImportedDataType>,
     string_sections: Vec<std::ops::Range<u64>>,
     code_sections: Vec<std::ops::Range<u64>>,
     entry: Option<u64>,
@@ -183,6 +187,31 @@ pub struct CallEdge {
     pub caller: u64,
     pub callee: u64,
     pub call_site: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct ProgramReference {
+    pub from: u64,
+    pub to: u64,
+    pub kind: String,
+    pub is_primary: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ProgramRelocation {
+    pub address: u64,
+    pub kind: String,
+    pub symbol: Option<String>,
+    pub addend: i64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ImportedDataType {
+    pub name: String,
+    pub kind: String,
+    pub size: u64,
+    pub signed: Option<bool>,
+    pub encoding: Option<String>,
 }
 
 impl fmt::Display for PcodeVarnode {
@@ -359,6 +388,9 @@ impl Program {
             architecture,
             functions: BTreeMap::new(),
             data: BTreeMap::new(),
+            references: BTreeMap::new(),
+            relocations: BTreeMap::new(),
+            imported_types: BTreeMap::new(),
             string_sections: Vec::new(),
             code_sections: Vec::new(),
             entry: None,
@@ -657,6 +689,52 @@ impl Program {
         result.sort_by_key(|entry| entry.address);
         result.dedup_by_key(|entry| entry.address);
         Ok(result)
+    }
+
+    /// Add an external program-database cross-reference to the native Program model.
+    pub fn import_reference(&mut self, from: u64, to: u64, kind: &str, is_primary: bool) -> Result<bool> {
+        if kind.is_empty() || kind.len() > 128 || kind.contains('\0') { return Err(Error::Lowlevel("invalid reference kind".to_string())); }
+        let reference = ProgramReference { from, to, kind: kind.to_string(), is_primary };
+        let entries = self.references.entry(from).or_default();
+        if entries.contains(&reference) { return Ok(false); }
+        entries.push(reference);
+        entries.sort();
+        Ok(true)
+    }
+
+    pub fn references_from(&self, address: u64) -> &[ProgramReference] {
+        self.references.get(&address).map(Vec::as_slice).unwrap_or(&[])
+    }
+
+    /// Preserve relocation semantics in the Program model. Applying machine-specific
+    /// relocation arithmetic to raw bytes is deliberately handled by the loader layer.
+    pub fn import_relocation(&mut self, address: u64, kind: &str, symbol: Option<&str>, addend: i64) -> Result<()> {
+        if kind.is_empty() || kind.len() > 128 || kind.contains('\0') { return Err(Error::Lowlevel("invalid relocation kind".to_string())); }
+        self.relocations.insert(address, ProgramRelocation { address, kind: kind.to_string(), symbol: symbol.map(str::to_string), addend });
+        Ok(())
+    }
+
+    pub fn relocations(&self) -> impl Iterator<Item = &ProgramRelocation> { self.relocations.values() }
+
+    /// Keep imported datatype definitions available to later type-graph binding.
+    pub fn import_data_type(&mut self, name: &str, kind: &str, size: u64, signed: Option<bool>, encoding: Option<&str>) -> Result<()> {
+        if name.is_empty() || name.len() > 1024 || name.contains('\0') || kind.is_empty() || kind.len() > 128 || kind.contains('\0') {
+            return Err(Error::Lowlevel("invalid imported datatype descriptor".to_string()));
+        }
+        if size > 16 * 1024 * 1024 { return Err(Error::Lowlevel("imported datatype exceeds size limit".to_string())); }
+        self.imported_types.insert(name.to_string(), ImportedDataType { name: name.to_string(), kind: kind.to_string(), size, signed, encoding: encoding.map(str::to_string) });
+        Ok(())
+    }
+
+    pub fn imported_data_types(&self) -> impl Iterator<Item = &ImportedDataType> { self.imported_types.values() }
+
+    /// Apply a SLEIGH-defined processor context variable at an address.
+    pub fn import_context_value(&mut self, address: u64, register: &str, value: u64) -> Result<()> {
+        let value = u32::try_from(value).map_err(|_| Error::Lowlevel(format!("context value for {register} exceeds 32 bits")))?;
+        let location = self.code_address(address)?;
+        let shared = self.architecture.context.as_ref().ok_or_else(|| Error::Lowlevel("architecture has no processor context database".to_string()))?;
+        let mut context = shared.lock().map_err(|_| Error::Lowlevel("processor context database lock poisoned".to_string()))?;
+        context.set_variable(register, &location, value)
     }
 
     /// Import a sized data symbol from an external program database.
