@@ -17,5 +17,7 @@ jobs:
         run: cargo test --lib
       - name: Build all-processor decompiler CLI
         run: cargo build --release --example decomp --features all-processors
+      - name: Build persistent Ghidra host worker
+        run: cargo build --release --bin ghidra-rust-worker
       - name: Check ARM-focused mobile build
         run: cargo check --no-default-features --features mobile --examples
