@@ -512,6 +512,20 @@ mod tests {
     }
 
     #[test]
+    fn parses_function_namespace_and_parameter_storage() {
+        let frame = br#"{"protocol_version":1,"request_id":"sig","command":"open_program","payload":{"name":"p","language_id":"x86:LE:64:default","compiler_spec_id":"gcc","endianness":"little","functions":[{"entry":4096,"name":"worker","body_size":12,"namespace":"app::detail","calling_convention":"__cdecl","return_type":"int","parameters":[{"ordinal":0,"name":"value","type_name":"unsigned int","storage":"RDI:4"}]}]}}"#;
+        let request = HostRequest::parse_frame(frame).unwrap();
+        let HostCommand::OpenProgram(snapshot) = request.command else { panic!("expected open_program") };
+        let function = &snapshot.functions[0];
+        assert_eq!(function.namespace.as_deref(), Some("app::detail"));
+        assert_eq!(function.calling_convention.as_deref(), Some("__cdecl"));
+        assert_eq!(function.parameters[0].ordinal, 0);
+        assert_eq!(function.parameters[0].name, "value");
+        assert_eq!(function.parameters[0].type_name, "unsigned int");
+        assert_eq!(function.parameters[0].storage.as_deref(), Some("RDI:4"));
+    }
+
+    #[test]
     fn rejects_overlapping_memory_blocks() {
         let frame = br#"{"protocol_version":1,"request_id":"open","command":"open_program","payload":{"name":"sample","language_id":"x","compiler_spec_id":"x","endianness":"little","memory_blocks":[{"start":4096,"bytes_hex":"010203"},{"start":4098,"bytes_hex":"04"}]}}"#;
         assert!(HostRequest::parse_frame(frame).unwrap_err().contains("overlapping"));
