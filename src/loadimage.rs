@@ -119,8 +119,7 @@ impl LoadImage for RawLoadImage {
     }
 
     fn load_fill(&self, ptr: &mut [u8], addr: &Address) -> Result<()> {
-        let empty = Vec::new();
-        let content = self.content.as_ref().unwrap_or(&empty);
+        let content = self.content.as_deref().map(Vec::as_slice).unwrap_or(&[]);
         let filesize = content.len() as u64;
         let mut curaddr = addr.get_offset().wrapping_sub(self.vma);
         let mut offset = 0usize;
