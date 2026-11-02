@@ -41,6 +41,9 @@ const SHN_LORESERVE: u16 = 0xff00;
 const EM_ARM: u16 = 40;
 
 const BUFFER_SIZE: usize = 512;
+const MAX_OBJECT_SECTIONS: usize = 131_072;
+const MAX_OBJECT_SYMBOLS: usize = 1_000_000;
+const MAX_SYMBOL_NAME_BYTES: usize = 4_096;
 
 #[derive(Clone, Debug, Default)]
 struct ObjectSectionRecord {
@@ -212,9 +215,16 @@ fn infer_language(file: &object::File<'_>) -> Option<String> {
     Some(language)
 }
 
+fn valid_file_range(offset: u64, size: u64, data_len: usize) -> bool {
+    usize::try_from(offset).ok()
+        .and_then(|start| usize::try_from(size).ok().and_then(|length| start.checked_add(length)))
+        .is_some_and(|end| end <= data_len)
+}
+
 fn parse_elf<'data, Elf: FileHeader<Endian = Endianness>>(
     elf: &ElfFile<'data, Elf, &'data [u8]>,
     parsed: &mut ParsedObject,
+    data_len: usize,
 ) {
     let endian = elf.endian();
     let header = elf.elf_header();
@@ -223,19 +233,24 @@ fn parse_elf<'data, Elf: FileHeader<Endian = Endianness>>(
     let shstrndx = header.e_shstrndx(endian) as usize;
     let mut symtab_index: Option<usize> = None;
     let mut symtab_strtab: Option<usize> = None;
-    for (index, section) in table.iter().enumerate() {
+    for (index, section) in table.iter().take(MAX_OBJECT_SECTIONS).enumerate() {
         if section.sh_type(endian) == SHT_SYMTAB {
             symtab_index = Some(index);
             symtab_strtab = Some(section.sh_link(endian) as usize);
             break;
         }
     }
-    let mut regular = vec![false; table.len()];
+    let mut regular = vec![false; table.len().min(MAX_OBJECT_SECTIONS)];
     for (index, section) in table.iter().enumerate() {
         if index == 0 {
             continue;
         }
         let sh_type = section.sh_type(endian);
+        let size: u64 = section.sh_size(endian).into();
+        let offset: u64 = section.sh_offset(endian).into();
+        if sh_type != SHT_NOBITS && !valid_file_range(offset, size, data_len) {
+            continue;
+        }
         let sh_flags: u64 = section.sh_flags(endian).into();
         if sh_type == SHT_SYMTAB {
             continue;
@@ -267,8 +282,6 @@ fn parse_elf<'data, Elf: FileHeader<Endian = Endianness>>(
         } else if (flags & SEC_LOAD) != 0 {
             flags |= SEC_DATA;
         }
-        let size: u64 = section.sh_size(endian).into();
-        let offset: u64 = section.sh_offset(endian).into();
         regular[index] = true;
         parsed.sections.push(ObjectSectionRecord {
             vma: section.sh_addr(endian).into(),
@@ -279,7 +292,7 @@ fn parse_elf<'data, Elf: FileHeader<Endian = Endianness>>(
         });
     }
     let symbols = elf.elf_symbol_table();
-    for symbol in symbols.iter().skip(1) {
+    for symbol in symbols.iter().skip(1).take(MAX_OBJECT_SYMBOLS) {
         let st_type = symbol.st_type();
         if st_type != STT_FUNC && st_type != STT_GNU_IFUNC {
             continue;
@@ -288,6 +301,9 @@ fn parse_elf<'data, Elf: FileHeader<Endian = Endianness>>(
             .symbol_name(endian, symbol)
             .map(|bytes| String::from_utf8_lossy(bytes).into_owned())
             .unwrap_or_default();
+        if name.len() > MAX_SYMBOL_NAME_BYTES {
+            continue;
+        }
         let mut value: u64 = symbol.st_value(endian).into();
         if machine == EM_ARM && (value & 1) != 0 {
             value &= !1;
@@ -303,8 +319,8 @@ fn parse_elf<'data, Elf: FileHeader<Endian = Endianness>>(
     }
 }
 
-fn parse_generic(file: &object::File<'_>, parsed: &mut ParsedObject) {
-    for section in file.sections() {
+fn parse_generic(file: &object::File<'_>, parsed: &mut ParsedObject, data_len: usize) {
+    for section in file.sections().take(MAX_OBJECT_SECTIONS) {
         let kind = section.kind();
         let alloc = matches!(
             kind,
@@ -324,7 +340,7 @@ fn parse_generic(file: &object::File<'_>, parsed: &mut ParsedObject) {
                 flags |= SEC_LOAD;
             }
         }
-        let file_range = section.file_range();
+        let file_range = section.file_range().filter(|(offset, size)| valid_file_range(*offset, *size, data_len));
         if file_range.is_some() {
             flags |= SEC_HAS_CONTENTS;
         }
@@ -350,13 +366,16 @@ fn parse_generic(file: &object::File<'_>, parsed: &mut ParsedObject) {
             flags,
         });
     }
-    for symbol in file.symbols() {
+    for symbol in file.symbols().take(MAX_OBJECT_SYMBOLS) {
         if symbol.kind() != SymbolKind::Text || !symbol.is_definition() {
             continue;
         }
-        let name = symbol.name().unwrap_or_default().to_string();
+        let name = symbol.name().unwrap_or_default();
+        if name.len() > MAX_SYMBOL_NAME_BYTES {
+            continue;
+        }
         parsed.symbols.push(ObjectSymbolRecord {
-            name,
+            name: name.to_string(),
             value: symbol.address(),
             section_relative: true,
         });
@@ -371,10 +390,10 @@ fn parse_object(data: &[u8]) -> Option<ParsedObject> {
         ..ParsedObject::default()
     };
     match &file {
-        object::File::Elf32(elf) => parse_elf(elf, &mut parsed),
-        object::File::Elf64(elf) => parse_elf(elf, &mut parsed),
+        object::File::Elf32(elf) => parse_elf(elf, &mut parsed, data.len()),
+        object::File::Elf64(elf) => parse_elf(elf, &mut parsed, data.len()),
         object::File::MachO32(_) | object::File::MachO64(_) | object::File::Pe32(_) | object::File::Pe64(_) => {
-            parse_generic(&file, &mut parsed)
+            parse_generic(&file, &mut parsed, data.len())
         }
         _ => return None,
     }
