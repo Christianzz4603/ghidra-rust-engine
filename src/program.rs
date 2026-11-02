@@ -315,10 +315,14 @@ fn pcode_varnode(data: &VarnodeData) -> PcodeVarnode {
 impl PcodeEmit for OperationCollector<'_> {
     fn dump(&mut self, _addr: &Address, opc: OpCode, outvar: Option<&VarnodeData>, vars: &[VarnodeData]) -> Result<()> {
         if self.operations.len() >= MAX_PCODE_OPERATIONS_PER_INSTRUCTION {
-            return Err(Error::Lowlevel(format!("instruction exceeds the P-code operation limit of {MAX_PCODE_OPERATIONS_PER_INSTRUCTION}")));
+            return Err(Error::Lowlevel(format!(
+                "instruction exceeds the P-code operation limit of {MAX_PCODE_OPERATIONS_PER_INSTRUCTION}"
+            )));
         }
         if vars.len() > MAX_PCODE_VARNODES_PER_OPERATION {
-            return Err(Error::Lowlevel(format!("P-code operation exceeds the varnode limit of {MAX_PCODE_VARNODES_PER_OPERATION}")));
+            return Err(Error::Lowlevel(format!(
+                "P-code operation exceeds the varnode limit of {MAX_PCODE_VARNODES_PER_OPERATION}"
+            )));
         }
         let space = match (opc, vars.first()) {
             (OpCode::Load | OpCode::Store, Some(space_operand)) => self
@@ -366,15 +370,22 @@ fn estimate_pcode_bytes(instructions: &[InstructionPcode], instruction_capacity:
         instruction_capacity.saturating_mul(std::mem::size_of::<InstructionPcode>()),
         |total, instruction| {
             let operations = instruction.operations.iter().fold(
-                instruction.operations.capacity().saturating_mul(std::mem::size_of::<PcodeOperation>()),
+                instruction
+                    .operations
+                    .capacity()
+                    .saturating_mul(std::mem::size_of::<PcodeOperation>()),
                 |sum, operation| {
                     let varnodes = operation.inputs.iter().fold(
-                        operation.inputs.capacity().saturating_mul(std::mem::size_of::<PcodeVarnode>()),
+                        operation
+                            .inputs
+                            .capacity()
+                            .saturating_mul(std::mem::size_of::<PcodeVarnode>()),
                         |bytes, input| bytes.saturating_add(input.space.capacity()),
                     );
-                    let output = operation.output.as_ref().map_or(0, |value| {
-                        std::mem::size_of::<PcodeVarnode>() + value.space.capacity()
-                    });
+                    let output = operation
+                        .output
+                        .as_ref()
+                        .map_or(0, |value| std::mem::size_of::<PcodeVarnode>() + value.space.capacity());
                     sum.saturating_add(varnodes)
                         .saturating_add(output)
                         .saturating_add(operation.space.as_ref().map_or(0, String::capacity))
@@ -398,7 +409,10 @@ impl Program {
             .read_to_end(&mut bytes)
             .map_err(|error| Error::Lowlevel(format!("failed to read '{}': {error}", path.display())))?;
         if bytes.len() as u64 > MAX_INPUT_IMAGE_BYTES {
-            return Err(Error::Lowlevel(format!("image exceeds the safe input limit of {} bytes", MAX_INPUT_IMAGE_BYTES)));
+            return Err(Error::Lowlevel(format!(
+                "image exceeds the safe input limit of {} bytes",
+                MAX_INPUT_IMAGE_BYTES
+            )));
         }
         Program::from_image_with(&path.to_string_lossy(), bytes, language, loading)
     }
@@ -414,7 +428,10 @@ impl Program {
         loading: SymbolLoading,
     ) -> Result<Program> {
         if bytes.len() as u64 > MAX_INPUT_IMAGE_BYTES {
-            return Err(Error::Lowlevel(format!("image exceeds the safe input limit of {} bytes", MAX_INPUT_IMAGE_BYTES)));
+            return Err(Error::Lowlevel(format!(
+                "image exceeds the safe input limit of {} bytes",
+                MAX_INPUT_IMAGE_BYTES
+            )));
         }
         let symbols = match loading {
             SymbolLoading::Loader => SymbolInput::Loader,
@@ -429,7 +446,8 @@ impl Program {
     }
 
     pub(crate) fn from_raw_shared_bytes(bytes: Arc<Vec<u8>>, language: &str, base_address: u64) -> Result<Program> {
-        let code_end = base_address.checked_add(bytes.len() as u64)
+        let code_end = base_address
+            .checked_add(bytes.len() as u64)
             .ok_or_else(|| Error::Lowlevel("raw image address range overflow".to_string()))?;
         let builder = RawBinaryArchitecture::with_shared_bytes("raw", language, bytes, base_address);
         let mut program = Program::initialize(Arc::new(builder), SymbolInput::None)?;
@@ -757,26 +775,62 @@ impl Program {
     }
 
     /// Store the prototype recovered by Ghidra's Function/Parameter database.
-    pub fn import_function_signature(&mut self, entry: u64, calling_convention: Option<&str>, return_type: Option<&str>, parameters: Vec<ImportedParameter>) -> Result<()> {
-        if parameters.len() > 1024 { return Err(Error::Lowlevel("function prototype exceeds parameter limit".to_string())); }
-        for value in calling_convention.iter().chain(return_type.iter()) {
-            if value.len() > 1024 || value.contains('\0') { return Err(Error::Lowlevel("invalid function prototype metadata".to_string())); }
+    pub fn import_function_signature(
+        &mut self,
+        entry: u64,
+        calling_convention: Option<&str>,
+        return_type: Option<&str>,
+        parameters: Vec<ImportedParameter>,
+    ) -> Result<()> {
+        if parameters.len() > 1024 {
+            return Err(Error::Lowlevel(
+                "function prototype exceeds parameter limit".to_string(),
+            ));
         }
-        if parameters.iter().any(|parameter| parameter.name.len() > 1024 || parameter.type_name.len() > 1024 || parameter.name.contains('\0') || parameter.type_name.contains('\0')) {
+        for value in calling_convention.iter().chain(return_type.iter()) {
+            if value.len() > 1024 || value.contains('\0') {
+                return Err(Error::Lowlevel("invalid function prototype metadata".to_string()));
+            }
+        }
+        if parameters.iter().any(|parameter| {
+            parameter.name.len() > 1024
+                || parameter.type_name.len() > 1024
+                || parameter.name.contains('\0')
+                || parameter.type_name.contains('\0')
+        }) {
             return Err(Error::Lowlevel("invalid imported parameter metadata".to_string()));
         }
-        self.function_signatures.insert(entry, ImportedFunctionSignature { entry, calling_convention: calling_convention.map(str::to_string), return_type: return_type.map(str::to_string), parameters });
+        self.function_signatures.insert(
+            entry,
+            ImportedFunctionSignature {
+                entry,
+                calling_convention: calling_convention.map(str::to_string),
+                return_type: return_type.map(str::to_string),
+                parameters,
+            },
+        );
         Ok(())
     }
 
-    pub fn function_signature(&self, entry: u64) -> Option<&ImportedFunctionSignature> { self.function_signatures.get(&entry) }
+    pub fn function_signature(&self, entry: u64) -> Option<&ImportedFunctionSignature> {
+        self.function_signatures.get(&entry)
+    }
 
     /// Add an external program-database cross-reference to the native Program model.
     pub fn import_reference(&mut self, from: u64, to: u64, kind: &str, is_primary: bool) -> Result<bool> {
-        if kind.is_empty() || kind.len() > 128 || kind.contains('\0') { return Err(Error::Lowlevel("invalid reference kind".to_string())); }
-        let reference = ProgramReference { from, to, kind: kind.to_string(), is_primary };
+        if kind.is_empty() || kind.len() > 128 || kind.contains('\0') {
+            return Err(Error::Lowlevel("invalid reference kind".to_string()));
+        }
+        let reference = ProgramReference {
+            from,
+            to,
+            kind: kind.to_string(),
+            is_primary,
+        };
         let entries = self.references.entry(from).or_default();
-        if entries.contains(&reference) { return Ok(false); }
+        if entries.contains(&reference) {
+            return Ok(false);
+        }
         entries.push(reference);
         entries.sort();
         Ok(true)
@@ -789,57 +843,121 @@ impl Program {
     /// Preserve relocation semantics in the Program model. Applying machine-specific
     /// relocation arithmetic to raw bytes is deliberately handled by the loader layer.
     pub fn import_relocation(&mut self, address: u64, kind: &str, symbol: Option<&str>, addend: i64) -> Result<()> {
-        if kind.is_empty() || kind.len() > 128 || kind.contains('\0') { return Err(Error::Lowlevel("invalid relocation kind".to_string())); }
-        self.relocations.insert(address, ProgramRelocation { address, kind: kind.to_string(), symbol: symbol.map(str::to_string), addend });
+        if kind.is_empty() || kind.len() > 128 || kind.contains('\0') {
+            return Err(Error::Lowlevel("invalid relocation kind".to_string()));
+        }
+        self.relocations.insert(
+            address,
+            ProgramRelocation {
+                address,
+                kind: kind.to_string(),
+                symbol: symbol.map(str::to_string),
+                addend,
+            },
+        );
         Ok(())
     }
 
-    pub fn relocations(&self) -> impl Iterator<Item = &ProgramRelocation> { self.relocations.values() }
+    pub fn relocations(&self) -> impl Iterator<Item = &ProgramRelocation> {
+        self.relocations.values()
+    }
 
     /// Keep imported datatype definitions available to later type-graph binding.
-    pub fn import_data_type(&mut self, name: &str, kind: &str, size: u64, signed: Option<bool>, encoding: Option<&str>) -> Result<()> {
-        if name.is_empty() || name.len() > 1024 || name.contains('\0') || kind.is_empty() || kind.len() > 128 || kind.contains('\0') {
+    pub fn import_data_type(
+        &mut self,
+        name: &str,
+        kind: &str,
+        size: u64,
+        signed: Option<bool>,
+        encoding: Option<&str>,
+    ) -> Result<()> {
+        if name.is_empty()
+            || name.len() > 1024
+            || name.contains('\0')
+            || kind.is_empty()
+            || kind.len() > 128
+            || kind.contains('\0')
+        {
             return Err(Error::Lowlevel("invalid imported datatype descriptor".to_string()));
         }
-        if size > 16 * 1024 * 1024 { return Err(Error::Lowlevel("imported datatype exceeds size limit".to_string())); }
-        self.imported_types.insert(name.to_string(), ImportedDataType { name: name.to_string(), kind: kind.to_string(), size, signed, encoding: encoding.map(str::to_string) });
+        if size > 16 * 1024 * 1024 {
+            return Err(Error::Lowlevel("imported datatype exceeds size limit".to_string()));
+        }
+        self.imported_types.insert(
+            name.to_string(),
+            ImportedDataType {
+                name: name.to_string(),
+                kind: kind.to_string(),
+                size,
+                signed,
+                encoding: encoding.map(str::to_string),
+            },
+        );
         Ok(())
     }
 
-    pub fn imported_data_types(&self) -> impl Iterator<Item = &ImportedDataType> { self.imported_types.values() }
+    pub fn imported_data_types(&self) -> impl Iterator<Item = &ImportedDataType> {
+        self.imported_types.values()
+    }
 
     /// Apply a SLEIGH-defined processor context variable at an address.
     pub fn import_context_value(&mut self, address: u64, register: &str, value: u64) -> Result<()> {
-        let value = u32::try_from(value).map_err(|_| Error::Lowlevel(format!("context value for {register} exceeds 32 bits")))?;
+        let value = u32::try_from(value)
+            .map_err(|_| Error::Lowlevel(format!("context value for {register} exceeds 32 bits")))?;
         let location = self.code_address(address)?;
-        let shared = self.architecture.context.as_ref().ok_or_else(|| Error::Lowlevel("architecture has no processor context database".to_string()))?;
-        let mut context = shared.lock().map_err(|_| Error::Lowlevel("processor context database lock poisoned".to_string()))?;
+        let shared = self
+            .architecture
+            .context
+            .as_ref()
+            .ok_or_else(|| Error::Lowlevel("architecture has no processor context database".to_string()))?;
+        let mut context = shared
+            .lock()
+            .map_err(|_| Error::Lowlevel("processor context database lock poisoned".to_string()))?;
         context.set_variable(register, &location, value)
     }
 
     /// Import a sized data symbol from an external program database.
     pub fn import_data_symbol(&mut self, address: u64, name: &str, size: u64) -> Result<()> {
-        if name.is_empty() || name.len() > 1024 || name.contains('\0') { return Err(Error::Lowlevel("invalid imported data symbol name".to_string())); }
-        if size == 0 || size > 1024 * 1024 { return Err(Error::Lowlevel(format!("unsupported imported data symbol size {size}"))); }
-        if self.data.contains_key(&address) { self.set_data_name(address, name)?; return Ok(()); }
+        if name.is_empty() || name.len() > 1024 || name.contains('\0') {
+            return Err(Error::Lowlevel("invalid imported data symbol name".to_string()));
+        }
+        if size == 0 || size > 1024 * 1024 {
+            return Err(Error::Lowlevel(format!("unsupported imported data symbol size {size}")));
+        }
+        if self.data.contains_key(&address) {
+            self.set_data_name(address, name)?;
+            return Ok(());
+        }
         self.add_typed_data_symbol(name, None, address, size)
     }
 
     /// Import a data symbol and bind its Ghidra datatype name in Program metadata.
-    pub fn import_typed_data_symbol(&mut self, address: u64, name: &str, size: u64, type_name: Option<&str>) -> Result<()> {
+    pub fn import_typed_data_symbol(
+        &mut self,
+        address: u64,
+        name: &str,
+        size: u64,
+        type_name: Option<&str>,
+    ) -> Result<()> {
         self.import_data_symbol(address, name, size)?;
         if let Some(type_name) = type_name {
-            if type_name.is_empty() || type_name.len() > 1024 || type_name.contains('\0') { return Err(Error::Lowlevel("invalid data symbol datatype name".to_string())); }
+            if type_name.is_empty() || type_name.len() > 1024 || type_name.contains('\0') {
+                return Err(Error::Lowlevel("invalid data symbol datatype name".to_string()));
+            }
             self.data_symbol_types.insert(address, type_name.to_string());
         }
         Ok(())
     }
 
-    pub fn data_symbol_type(&self, address: u64) -> Option<&str> { self.data_symbol_types.get(&address).map(String::as_str) }
+    pub fn data_symbol_type(&self, address: u64) -> Option<&str> {
+        self.data_symbol_types.get(&address).map(String::as_str)
+    }
 
     /// Import a code-unit comment into the native decompiler comment database.
     pub fn import_comment(&mut self, function_entry: u64, address: u64, kind: &str, text: &str) -> Result<bool> {
-        if text.len() > 64 * 1024 || text.contains('\0') { return Err(Error::Lowlevel("invalid imported comment text".to_string())); }
+        if text.len() > 64 * 1024 || text.contains('\0') {
+            return Err(Error::Lowlevel("invalid imported comment text".to_string()));
+        }
         let comment_type = match kind.to_ascii_lowercase().as_str() {
             "plate" | "header" => Comment::HEADER,
             "pre" | "pre_comment" | "eol" | "end_of_line" => Comment::USER1,
@@ -849,7 +967,11 @@ impl Program {
         };
         let function_address = self.code_address(function_entry)?;
         let comment_address = self.code_address(address)?;
-        let database = self.architecture.commentdb.as_deref_mut().ok_or_else(|| Error::Lowlevel("architecture has no comment database".to_string()))?;
+        let database = self
+            .architecture
+            .commentdb
+            .as_deref_mut()
+            .ok_or_else(|| Error::Lowlevel("architecture has no comment database".to_string()))?;
         Ok(database.add_comment_no_duplicate(comment_type, &function_address, &comment_address, text))
     }
 
@@ -1103,7 +1225,9 @@ impl Program {
     fn disassemble_unguarded(&self, address: u64, instruction_count: usize) -> Result<Vec<Instruction>> {
         let translate = self.architecture.translator()?;
         if instruction_count > MAX_PCODE_INSTRUCTIONS {
-            return Err(Error::Lowlevel(format!("requested disassembly instruction count {instruction_count} exceeds safe limit {MAX_PCODE_INSTRUCTIONS}")));
+            return Err(Error::Lowlevel(format!(
+                "requested disassembly instruction count {instruction_count} exceeds safe limit {MAX_PCODE_INSTRUCTIONS}"
+            )));
         }
         let mut current = self.code_address(address)?;
         let mut instructions = Vec::with_capacity(instruction_count.min(4096));
@@ -1114,7 +1238,10 @@ impl Program {
             };
             let length = translate.print_assembly(&mut text, &current)?;
             if length <= 0 || length > MAX_INSTRUCTION_BYTES {
-                return Err(Error::Lowlevel(format!("invalid instruction length {length} at {:#x}", current.get_offset())));
+                return Err(Error::Lowlevel(format!(
+                    "invalid instruction length {length} at {:#x}",
+                    current.get_offset()
+                )));
             }
             let mut bytes = vec![0u8; length as usize];
             if let Some(loader) = &self.architecture.loader {
@@ -1145,7 +1272,9 @@ impl Program {
     /// use one-byte resynchronization because their instruction widths may vary.
     pub fn disassemble_range_recovering(&self, address: u64, byte_length: u64) -> Result<DisassemblyReport> {
         if byte_length > MAX_DISASSEMBLY_BYTES {
-            return Err(Error::Lowlevel(format!("disassembly range {byte_length} bytes exceeds safe limit {MAX_DISASSEMBLY_BYTES}")));
+            return Err(Error::Lowlevel(format!(
+                "disassembly range {byte_length} bytes exceeds safe limit {MAX_DISASSEMBLY_BYTES}"
+            )));
         }
         panic_guard(|| {
             let translate = self.architecture.translator()?;
@@ -1164,7 +1293,9 @@ impl Program {
 
             while remaining > 0 {
                 if instructions.len() >= MAX_PCODE_INSTRUCTIONS {
-                    return Err(Error::Lowlevel(format!("disassembly instruction count exceeds safe limit {MAX_PCODE_INSTRUCTIONS}")));
+                    return Err(Error::Lowlevel(format!(
+                        "disassembly instruction count exceeds safe limit {MAX_PCODE_INSTRUCTIONS}"
+                    )));
                 }
                 let mut text = InstructionText {
                     mnemonic: String::new(),
@@ -1310,7 +1441,9 @@ impl Program {
 
     pub fn disassemble_range(&self, address: u64, byte_length: u64) -> Result<Vec<Instruction>> {
         if byte_length > MAX_DISASSEMBLY_BYTES {
-            return Err(Error::Lowlevel(format!("disassembly range {byte_length} bytes exceeds safe limit {MAX_DISASSEMBLY_BYTES}")));
+            return Err(Error::Lowlevel(format!(
+                "disassembly range {byte_length} bytes exceeds safe limit {MAX_DISASSEMBLY_BYTES}"
+            )));
         }
         panic_guard(|| {
             let translate = self.architecture.translator()?;
@@ -1322,7 +1455,9 @@ impl Program {
             let mut instructions = Vec::with_capacity(estimated);
             while remaining > 0 {
                 if instructions.len() >= MAX_PCODE_INSTRUCTIONS {
-                    return Err(Error::Lowlevel(format!("disassembly instruction count exceeds safe limit {MAX_PCODE_INSTRUCTIONS}")));
+                    return Err(Error::Lowlevel(format!(
+                        "disassembly instruction count exceeds safe limit {MAX_PCODE_INSTRUCTIONS}"
+                    )));
                 }
                 let mut text = InstructionText {
                     mnemonic: String::new(),
@@ -1369,14 +1504,18 @@ impl Program {
         while cache.estimated_bytes > cache.max_bytes {
             let Some(old_key) = cache.order.pop_front() else { break };
             if let Some(old) = cache.entries.remove(&old_key) {
-                cache.estimated_bytes = cache.estimated_bytes.saturating_sub(estimate_pcode_bytes(&old, old.capacity()));
+                cache.estimated_bytes = cache
+                    .estimated_bytes
+                    .saturating_sub(estimate_pcode_bytes(&old, old.capacity()));
             }
         }
     }
 
     pub fn pcode_range_shared(&self, address: u64, byte_length: u64) -> Result<Arc<Vec<InstructionPcode>>> {
         if byte_length > MAX_PCODE_RANGE_BYTES {
-            return Err(Error::Lowlevel(format!("P-code range {byte_length} bytes exceeds safe limit {MAX_PCODE_RANGE_BYTES}")));
+            return Err(Error::Lowlevel(format!(
+                "P-code range {byte_length} bytes exceeds safe limit {MAX_PCODE_RANGE_BYTES}"
+            )));
         }
         let key = (address, byte_length);
         {
@@ -1395,7 +1534,9 @@ impl Program {
             let mut instructions = Vec::with_capacity(estimated);
             while remaining > 0 {
                 if instructions.len() >= MAX_PCODE_INSTRUCTIONS {
-                    return Err(Error::Lowlevel(format!("P-code instruction count exceeds safe limit {MAX_PCODE_INSTRUCTIONS}")));
+                    return Err(Error::Lowlevel(format!(
+                        "P-code instruction count exceeds safe limit {MAX_PCODE_INSTRUCTIONS}"
+                    )));
                 }
                 let mut collector = OperationCollector {
                     manager: &self.architecture.manager,
@@ -1423,18 +1564,22 @@ impl Program {
         {
             let mut cache = self.pcode_cache.borrow_mut();
             if entry_bytes <= cache.max_bytes {
-            while cache.estimated_bytes.saturating_add(entry_bytes) > cache.max_bytes {
-                let Some(old_key) = cache.order.pop_front() else { break };
-                if let Some(old) = cache.entries.remove(&old_key) {
-                    cache.estimated_bytes = cache.estimated_bytes.saturating_sub(estimate_pcode_bytes(&old, old.capacity()));
+                while cache.estimated_bytes.saturating_add(entry_bytes) > cache.max_bytes {
+                    let Some(old_key) = cache.order.pop_front() else { break };
+                    if let Some(old) = cache.entries.remove(&old_key) {
+                        cache.estimated_bytes = cache
+                            .estimated_bytes
+                            .saturating_sub(estimate_pcode_bytes(&old, old.capacity()));
+                    }
                 }
-            }
-            if let Some(previous) = cache.entries.insert(key, Arc::clone(&translated)) {
-                cache.estimated_bytes = cache.estimated_bytes.saturating_sub(estimate_pcode_bytes(&previous, previous.capacity()));
-                cache.order.retain(|item| *item != key);
-            }
-            cache.estimated_bytes = cache.estimated_bytes.saturating_add(entry_bytes);
-            cache.order.push_back(key);
+                if let Some(previous) = cache.entries.insert(key, Arc::clone(&translated)) {
+                    cache.estimated_bytes = cache
+                        .estimated_bytes
+                        .saturating_sub(estimate_pcode_bytes(&previous, previous.capacity()));
+                    cache.order.retain(|item| *item != key);
+                }
+                cache.estimated_bytes = cache.estimated_bytes.saturating_add(entry_bytes);
+                cache.order.push_back(key);
             }
         }
         Ok(translated)
@@ -1451,7 +1596,9 @@ impl Program {
 
     fn pcode_unguarded(&self, address: u64, instruction_count: usize) -> Result<Vec<InstructionPcode>> {
         if instruction_count > MAX_PCODE_INSTRUCTIONS {
-            return Err(Error::Lowlevel(format!("requested P-code instruction count {instruction_count} exceeds safe limit {MAX_PCODE_INSTRUCTIONS}")));
+            return Err(Error::Lowlevel(format!(
+                "requested P-code instruction count {instruction_count} exceeds safe limit {MAX_PCODE_INSTRUCTIONS}"
+            )));
         }
         let translate = self.architecture.translator()?;
         let mut current = self.code_address(address)?;
@@ -1463,7 +1610,10 @@ impl Program {
             };
             let length = translate.one_instruction(&mut collector, &current)?;
             if length <= 0 || length > MAX_INSTRUCTION_BYTES {
-                return Err(Error::Lowlevel(format!("invalid instruction length {length} at {:#x}", current.get_offset())));
+                return Err(Error::Lowlevel(format!(
+                    "invalid instruction length {length} at {:#x}",
+                    current.get_offset()
+                )));
             }
             instructions.push(InstructionPcode {
                 address: current.get_offset(),

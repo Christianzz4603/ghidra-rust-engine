@@ -2,7 +2,10 @@ use std::path::Path;
 
 use crate::error::{Error, Result};
 use crate::program::{CallEdge, DataEntry, FunctionEntry, Instruction, Program, StringEntry, SymbolLoading};
-use crate::{BinaryIntelligence, DecompilerReconstructor, FlirtAnalyzer, FlirtOptions, FlirtReport, IntelligenceReport, FunctionAnalysisFailure, FunctionReconstruction};
+use crate::{
+    BinaryIntelligence, DecompilerReconstructor, FlirtAnalyzer, FlirtOptions, FlirtReport, FunctionAnalysisFailure,
+    FunctionReconstruction, IntelligenceReport,
+};
 
 #[derive(Clone, Debug)]
 pub struct AnalysisOptions {
@@ -89,10 +92,25 @@ pub struct FunctionAnalysis {
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum AnalysisEvent {
-    Started { total_functions: usize },
-    FunctionStarted { index: usize, total: usize, address: u64, name: String },
-    FunctionCompleted { index: usize, total: usize, result: FunctionAnalysis },
-    Finished { analyzed: usize, with_errors: usize, total: usize },
+    Started {
+        total_functions: usize,
+    },
+    FunctionStarted {
+        index: usize,
+        total: usize,
+        address: u64,
+        name: String,
+    },
+    FunctionCompleted {
+        index: usize,
+        total: usize,
+        result: FunctionAnalysis,
+    },
+    Finished {
+        analyzed: usize,
+        with_errors: usize,
+        total: usize,
+    },
 }
 
 #[derive(Clone, Debug)]
@@ -120,28 +138,44 @@ pub struct AnalysisEngine {
 
 impl AnalysisEngine {
     pub fn open(path: &Path, language: Option<&str>) -> Result<Self> {
-        Ok(Self { program: Program::open(path, language)? })
+        Ok(Self {
+            program: Program::open(path, language)?,
+        })
     }
 
     pub fn from_image(name: &str, bytes: Vec<u8>, language: Option<&str>) -> Result<Self> {
-        Ok(Self { program: Program::from_image(name, bytes, language)? })
+        Ok(Self {
+            program: Program::from_image(name, bytes, language)?,
+        })
     }
 
     pub fn open_with(path: &Path, language: Option<&str>, loading: SymbolLoading) -> Result<Self> {
-        Ok(Self { program: Program::open_with(path, language, loading)? })
+        Ok(Self {
+            program: Program::open_with(path, language, loading)?,
+        })
     }
 
     pub fn from_image_with(name: &str, bytes: Vec<u8>, language: Option<&str>, loading: SymbolLoading) -> Result<Self> {
-        Ok(Self { program: Program::from_image_with(name, bytes, language, loading)? })
+        Ok(Self {
+            program: Program::from_image_with(name, bytes, language, loading)?,
+        })
     }
 
     pub fn from_raw_bytes(bytes: Vec<u8>, language: &str, base_address: u64) -> Result<Self> {
-        Ok(Self { program: Program::from_raw_bytes(bytes, language, base_address)? })
+        Ok(Self {
+            program: Program::from_raw_bytes(bytes, language, base_address)?,
+        })
     }
 
-    pub fn from_program(program: Program) -> Self { Self { program } }
-    pub fn program(&self) -> &Program { &self.program }
-    pub fn program_mut(&mut self) -> &mut Program { &mut self.program }
+    pub fn from_program(program: Program) -> Self {
+        Self { program }
+    }
+    pub fn program(&self) -> &Program {
+        &self.program
+    }
+    pub fn program_mut(&mut self) -> &mut Program {
+        &mut self.program
+    }
 
     /// Run identification, base analysis, binary intelligence, and high-level
     /// reconstruction in a deterministic sequence. FLIRT is optional.
@@ -173,10 +207,15 @@ impl AnalysisEngine {
         if collect_call_graph {
             base.call_edges = intelligence.call_edges.clone();
         }
-        let reconstructions = DecompilerReconstructor
-            .reconstruct_all_with_intelligence(&mut self.program, &intelligence)?;
+        let reconstructions =
+            DecompilerReconstructor.reconstruct_all_with_intelligence(&mut self.program, &intelligence)?;
 
-        Ok(FullAnalysisReport { base, flirt: flirt_report, intelligence, reconstructions })
+        Ok(FullAnalysisReport {
+            base,
+            flirt: flirt_report,
+            intelligence,
+            reconstructions,
+        })
     }
 
     pub fn analyze_function(&mut self, address: u64, options: &AnalysisOptions) -> Result<FunctionAnalysis> {
@@ -185,12 +224,18 @@ impl AnalysisEngine {
     }
 
     pub fn analyze_function_by_name(&mut self, name: &str, options: &AnalysisOptions) -> Result<FunctionAnalysis> {
-        let function = self.program.find_function_by_name(name)?
+        let function = self
+            .program
+            .find_function_by_name(name)?
             .ok_or_else(|| Error::Lowlevel(format!("function not found: {name}")))?;
         Ok(analyze_one(&mut self.program, &function, options))
     }
 
-    pub fn analyze(&mut self, options: &AnalysisOptions, on_event: impl FnMut(AnalysisEvent)) -> Result<AnalysisReport> {
+    pub fn analyze(
+        &mut self,
+        options: &AnalysisOptions,
+        on_event: impl FnMut(AnalysisEvent),
+    ) -> Result<AnalysisReport> {
         self.analyze_selected(options, &AnalysisSelection::default(), on_event)
     }
 
@@ -201,21 +246,43 @@ impl AnalysisEngine {
         mut on_event: impl FnMut(AnalysisEvent),
     ) -> Result<AnalysisReport> {
         selection.validate()?;
-        if options.discover_functions { self.program.discover_functions()?; }
+        if options.discover_functions {
+            self.program.discover_functions()?;
+        }
 
         let mut functions = self.program.functions()?;
-        let selected_addresses = selection.function_addresses.as_ref()
+        let selected_addresses = selection
+            .function_addresses
+            .as_ref()
             .map(|addresses| addresses.iter().copied().collect::<std::collections::HashSet<_>>());
         if let Some(addresses) = &selected_addresses {
             functions.retain(|function| addresses.contains(&function.address));
         }
-        if let Some(start) = selection.start_address { functions.retain(|f| f.address >= start); }
-        if let Some(end) = selection.end_address { functions.retain(|f| f.address < end); }
-        if let Some(maximum) = selection.max_functions { functions.truncate(maximum); }
+        if let Some(start) = selection.start_address {
+            functions.retain(|f| f.address >= start);
+        }
+        if let Some(end) = selection.end_address {
+            functions.retain(|f| f.address < end);
+        }
+        if let Some(maximum) = selection.max_functions {
+            functions.truncate(maximum);
+        }
 
-        let data_symbols = if options.collect_data_symbols { self.program.data_symbols()? } else { Vec::new() };
-        let strings = if options.extract_strings { self.program.strings()? } else { Vec::new() };
-        let call_edges = if options.build_call_graph { self.program.call_graph()? } else { Vec::new() };
+        let data_symbols = if options.collect_data_symbols {
+            self.program.data_symbols()?
+        } else {
+            Vec::new()
+        };
+        let strings = if options.extract_strings {
+            self.program.strings()?
+        } else {
+            Vec::new()
+        };
+        let call_edges = if options.build_call_graph {
+            self.program.call_graph()?
+        } else {
+            Vec::new()
+        };
 
         let total = functions.len();
         on_event(AnalysisEvent::Started { total_functions: total });
@@ -224,23 +291,42 @@ impl AnalysisEngine {
         for (offset, function) in functions.iter().enumerate() {
             let index = offset + 1;
             on_event(AnalysisEvent::FunctionStarted {
-                index, total, address: function.address, name: function.name.clone(),
+                index,
+                total,
+                address: function.address,
+                name: function.name.clone(),
             });
             let result = analyze_one(&mut self.program, function, options);
-            if result.errors.is_empty() { analyzed += 1; } else { with_errors += 1; }
+            if result.errors.is_empty() {
+                analyzed += 1;
+            } else {
+                with_errors += 1;
+            }
             on_event(AnalysisEvent::FunctionCompleted { index, total, result });
         }
-        on_event(AnalysisEvent::Finished { analyzed, with_errors, total });
+        on_event(AnalysisEvent::Finished {
+            analyzed,
+            with_errors,
+            total,
+        });
         Ok(AnalysisReport {
-            functions, data_symbols, strings, call_edges,
-            analyzed_functions: analyzed, functions_with_errors: with_errors,
+            functions,
+            data_symbols,
+            strings,
+            call_edges,
+            analyzed_functions: analyzed,
+            functions_with_errors: with_errors,
         })
     }
 }
 
 fn analyze_one(program: &mut Program, function: &FunctionEntry, options: &AnalysisOptions) -> FunctionAnalysis {
     let mut result = FunctionAnalysis {
-        function: function.clone(), size: None, instructions: Vec::new(), pseudocode: None, errors: Vec::new(),
+        function: function.clone(),
+        size: None,
+        instructions: Vec::new(),
+        pseudocode: None,
+        errors: Vec::new(),
     };
     if options.disassemble {
         match program.function_size(function.address) {
@@ -272,13 +358,20 @@ mod tests {
     fn low_memory_profile_keeps_decompilation_and_skips_optional_passes() {
         let options = AnalysisOptions::low_memory();
         assert!(options.discover_functions && options.decompile);
-        assert!(!options.disassemble && !options.extract_strings && !options.collect_data_symbols && !options.build_call_graph);
+        assert!(
+            !options.disassemble
+                && !options.extract_strings
+                && !options.collect_data_symbols
+                && !options.build_call_graph
+        );
     }
 
     #[test]
     fn selection_builders_compose_address_and_count_filters() {
         let selection = super::AnalysisSelection::default()
-            .with_function_addresses([0x100, 0x200]).with_address_range(0x80, 0x300).with_max_functions(1);
+            .with_function_addresses([0x100, 0x200])
+            .with_address_range(0x80, 0x300)
+            .with_max_functions(1);
         assert_eq!(selection.function_addresses, Some(vec![0x100, 0x200]));
         assert_eq!(selection.start_address, Some(0x80));
         assert_eq!(selection.end_address, Some(0x300));
@@ -287,8 +380,18 @@ mod tests {
 
     #[test]
     fn invalid_address_range_is_rejected() {
-        assert!(super::AnalysisSelection::default().with_address_range(0x300, 0x100).validate().is_err());
-        assert!(super::AnalysisSelection::default().with_address_range(0x100, 0x300).validate().is_ok());
+        assert!(
+            super::AnalysisSelection::default()
+                .with_address_range(0x300, 0x100)
+                .validate()
+                .is_err()
+        );
+        assert!(
+            super::AnalysisSelection::default()
+                .with_address_range(0x100, 0x300)
+                .validate()
+                .is_ok()
+        );
     }
 
     #[test]

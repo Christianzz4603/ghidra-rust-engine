@@ -13,8 +13,8 @@ use crate::comment::CommentDatabaseInternal;
 use crate::cpool::ConstantPoolInternal;
 use crate::database::{ATTRIB_VOLATILE, Database};
 use crate::embedded_languages::EMBEDDED_FILES;
-use crate::filemanage::FileManage;
 use crate::error::{Error, Result};
+use crate::filemanage::FileManage;
 use crate::globalcontext::{ContextDatabase, ContextInternal};
 use crate::inject_sleigh::PcodeInjectLibrarySleigh;
 use crate::loadimage::SharedLoadImage;
@@ -366,13 +366,7 @@ impl LanguageRegistry {
 
     fn list_directory(path: &Path) -> Vec<PathBuf> {
         let mut entries = Vec::new();
-        if FileManage::match_list_dir(
-            &mut entries,
-            "",
-            crate::filemanage::NameMatch::Prefix,
-            path,
-            true,
-        ).is_err() {
+        if FileManage::match_list_dir(&mut entries, "", crate::filemanage::NameMatch::Prefix, path, true).is_err() {
             return Vec::new();
         }
         entries.sort();

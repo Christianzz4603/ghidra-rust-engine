@@ -76,13 +76,33 @@ pub struct RelocationDescriptor {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct CommentDescriptor { pub address: u64, pub function_entry: Option<u64>, pub kind: String, pub text: String }
+pub struct CommentDescriptor {
+    pub address: u64,
+    pub function_entry: Option<u64>,
+    pub kind: String,
+    pub text: String,
+}
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ReferenceDescriptor { pub from: u64, pub to: u64, pub kind: String, pub is_primary: bool }
+pub struct ReferenceDescriptor {
+    pub from: u64,
+    pub to: u64,
+    pub kind: String,
+    pub is_primary: bool,
+}
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct DataTypeDescriptor { pub name: String, pub kind: String, pub size: u64, pub signed: Option<bool>, pub encoding: Option<String> }
+pub struct DataTypeDescriptor {
+    pub name: String,
+    pub kind: String,
+    pub size: u64,
+    pub signed: Option<bool>,
+    pub encoding: Option<String>,
+}
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ContextValueDescriptor { pub address: u64, pub register: String, pub value: u64 }
+pub struct ContextValueDescriptor {
+    pub address: u64,
+    pub register: String,
+    pub value: u64,
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ProgramSnapshot {
@@ -146,9 +166,10 @@ impl HostRequest {
         if frame.len() > MAX_FRAME_BYTES {
             return Err(format!("host frame exceeds {MAX_FRAME_BYTES} bytes"));
         }
-        let root: Value = serde_json::from_slice(frame)
-            .map_err(|error| format!("invalid host JSON frame: {error}"))?;
-        let version = root.get("protocol_version").and_then(Value::as_u64)
+        let root: Value = serde_json::from_slice(frame).map_err(|error| format!("invalid host JSON frame: {error}"))?;
+        let version = root
+            .get("protocol_version")
+            .and_then(Value::as_u64)
             .ok_or("missing numeric protocol_version")?;
         if version != u64::from(HOST_PROTOCOL_VERSION) {
             return Err(format!("unsupported host protocol version {version}"));
@@ -181,7 +202,10 @@ impl HostRequest {
                     return Err("final_chunk must be true exactly when the declared block is complete".into());
                 }
                 HostCommand::AddMemoryBlockChunk(MemoryBlockChunk {
-                    start: required_u64(payload, "start")?, total_size, offset, bytes,
+                    start: required_u64(payload, "start")?,
+                    total_size,
+                    offset,
+                    bytes,
                     readable: optional_bool(payload, "readable", true)?,
                     writable: optional_bool(payload, "writable", false)?,
                     executable: optional_bool(payload, "executable", false)?,
@@ -202,7 +226,11 @@ impl HostRequest {
             "shutdown" => HostCommand::Shutdown,
             other => return Err(format!("unsupported host command {other}")),
         };
-        Ok(Self { protocol_version: version as u16, request_id, command })
+        Ok(Self {
+            protocol_version: version as u16,
+            request_id,
+            command,
+        })
     }
 }
 
@@ -235,8 +263,8 @@ impl HostResponse {
             "error": self.error,
             "payload": self.payload,
         });
-        let mut frame = serde_json::to_vec(&value)
-            .map_err(|error| format!("could not encode host response: {error}"))?;
+        let mut frame =
+            serde_json::to_vec(&value).map_err(|error| format!("could not encode host response: {error}"))?;
         if frame.len() > MAX_FRAME_BYTES {
             return Err(format!("host response exceeds {MAX_FRAME_BYTES} bytes"));
         }
@@ -270,8 +298,12 @@ pub fn read_frame<R: BufRead>(reader: &mut R) -> Result<Option<Vec<u8>>, String>
 
 pub fn write_frame<W: Write>(writer: &mut W, response: &HostResponse) -> Result<(), String> {
     let frame = response.encode_frame()?;
-    writer.write_all(&frame).map_err(|error| format!("failed writing host frame: {error}"))?;
-    writer.flush().map_err(|error| format!("failed flushing host frame: {error}"))
+    writer
+        .write_all(&frame)
+        .map_err(|error| format!("failed writing host frame: {error}"))?;
+    writer
+        .flush()
+        .map_err(|error| format!("failed flushing host frame: {error}"))
 }
 
 fn parse_snapshot(value: &Value) -> Result<ProgramSnapshot, String> {
@@ -300,11 +332,15 @@ fn parse_snapshot(value: &Value) -> Result<ProgramSnapshot, String> {
         let start = required_u64(raw, "start")?;
         let hex = required_string(raw, "bytes_hex")?;
         let bytes = decode_hex(hex, MAX_MEMORY_BLOCK_BYTES)?;
-        total_memory = total_memory.checked_add(bytes.len()).ok_or("memory snapshot size overflow")?;
+        total_memory = total_memory
+            .checked_add(bytes.len())
+            .ok_or("memory snapshot size overflow")?;
         if total_memory > MAX_TOTAL_MEMORY_BYTES {
             return Err(format!("memory snapshot exceeds {MAX_TOTAL_MEMORY_BYTES} bytes"));
         }
-        let end = start.checked_add(bytes.len() as u64).ok_or("memory block address overflow")?;
+        let end = start
+            .checked_add(bytes.len() as u64)
+            .ok_or("memory block address overflow")?;
         memory_blocks.push(MemoryBlock {
             start,
             bytes,
@@ -318,7 +354,9 @@ fn parse_snapshot(value: &Value) -> Result<ProgramSnapshot, String> {
     }
     memory_blocks.sort_unstable_by_key(|block| block.start);
     for pair in memory_blocks.windows(2) {
-        let previous_end = pair[0].start.checked_add(pair[0].bytes.len() as u64)
+        let previous_end = pair[0]
+            .start
+            .checked_add(pair[0].bytes.len() as u64)
             .ok_or("memory block address overflow")?;
         if previous_end > pair[1].start {
             return Err("memory snapshot contains overlapping blocks".into());
@@ -331,7 +369,13 @@ fn parse_snapshot(value: &Value) -> Result<ProgramSnapshot, String> {
         let raw_parameters = optional_array(raw, "parameters", 1024)?;
         let mut parameters = Vec::with_capacity(raw_parameters.len());
         for (index, parameter) in raw_parameters.iter().enumerate() {
-            let ordinal = match parameter.get("ordinal") { None | Some(Value::Null) => index as u32, Some(value) => value.as_u64().and_then(|number| u32::try_from(number).ok()).ok_or("parameter ordinal must fit u32")? };
+            let ordinal = match parameter.get("ordinal") {
+                None | Some(Value::Null) => index as u32,
+                Some(value) => value
+                    .as_u64()
+                    .and_then(|number| u32::try_from(number).ok())
+                    .ok_or("parameter ordinal must fit u32")?,
+            };
             parameters.push(ParameterDescriptor {
                 ordinal,
                 name: bounded_string(parameter, "name", MAX_IDENTIFIER_BYTES)?,
@@ -361,7 +405,10 @@ fn parse_snapshot(value: &Value) -> Result<ProgramSnapshot, String> {
             address: required_u64(raw, "address")?,
             name: bounded_string(raw, "name", MAX_IDENTIFIER_BYTES)?,
             kind: bounded_string(raw, "kind", 128)?,
-            size: match raw.get("size") { None | Some(Value::Null) => 1, Some(value) => value.as_u64().ok_or("symbol size must be an unsigned integer")? },
+            size: match raw.get("size") {
+                None | Some(Value::Null) => 1,
+                Some(value) => value.as_u64().ok_or("symbol size must be an unsigned integer")?,
+            },
             namespace: optional_string(raw, "namespace", MAX_IDENTIFIER_BYTES)?,
             type_name: optional_string(raw, "type_name", MAX_IDENTIFIER_BYTES)?,
         });
@@ -383,7 +430,10 @@ fn parse_snapshot(value: &Value) -> Result<ProgramSnapshot, String> {
     for raw in raw_comments {
         comments.push(CommentDescriptor {
             address: required_u64(raw, "address")?,
-            function_entry: match raw.get("function_entry") { None | Some(Value::Null) => None, Some(_) => Some(required_u64(raw, "function_entry")?) },
+            function_entry: match raw.get("function_entry") {
+                None | Some(Value::Null) => None,
+                Some(_) => Some(required_u64(raw, "function_entry")?),
+            },
             kind: bounded_string(raw, "kind", 64)?,
             text: bounded_string(raw, "text", MAX_FRAME_BYTES)?,
         });
@@ -391,17 +441,36 @@ fn parse_snapshot(value: &Value) -> Result<ProgramSnapshot, String> {
     let raw_references = optional_array(value, "references", MAX_REFERENCES)?;
     let mut references = Vec::with_capacity(raw_references.len());
     for raw in raw_references {
-        references.push(ReferenceDescriptor { from: required_u64(raw, "from")?, to: required_u64(raw, "to")?, kind: bounded_string(raw, "kind", 128)?, is_primary: optional_bool(raw, "is_primary", false)? });
+        references.push(ReferenceDescriptor {
+            from: required_u64(raw, "from")?,
+            to: required_u64(raw, "to")?,
+            kind: bounded_string(raw, "kind", 128)?,
+            is_primary: optional_bool(raw, "is_primary", false)?,
+        });
     }
     let raw_types = optional_array(value, "data_types", MAX_DATA_TYPES)?;
     let mut data_types = Vec::with_capacity(raw_types.len());
     for raw in raw_types {
-        data_types.push(DataTypeDescriptor { name: bounded_string(raw, "name", MAX_IDENTIFIER_BYTES)?, kind: bounded_string(raw, "kind", 128)?, size: required_u64(raw, "size")?, signed: match raw.get("signed") { None | Some(Value::Null) => None, Some(Value::Bool(value)) => Some(*value), Some(_) => return Err("datatype signed must be boolean".into()) }, encoding: optional_string(raw, "encoding", 128)? });
+        data_types.push(DataTypeDescriptor {
+            name: bounded_string(raw, "name", MAX_IDENTIFIER_BYTES)?,
+            kind: bounded_string(raw, "kind", 128)?,
+            size: required_u64(raw, "size")?,
+            signed: match raw.get("signed") {
+                None | Some(Value::Null) => None,
+                Some(Value::Bool(value)) => Some(*value),
+                Some(_) => return Err("datatype signed must be boolean".into()),
+            },
+            encoding: optional_string(raw, "encoding", 128)?,
+        });
     }
     let raw_context = optional_array(value, "context_values", MAX_CONTEXT_VALUES)?;
     let mut context_values = Vec::with_capacity(raw_context.len());
     for raw in raw_context {
-        context_values.push(ContextValueDescriptor { address: required_u64(raw, "address")?, register: bounded_string(raw, "register", MAX_IDENTIFIER_BYTES)?, value: required_u64(raw, "value")? });
+        context_values.push(ContextValueDescriptor {
+            address: required_u64(raw, "address")?,
+            register: bounded_string(raw, "register", MAX_IDENTIFIER_BYTES)?,
+            value: required_u64(raw, "value")?,
+        });
     }
 
     Ok(ProgramSnapshot {
@@ -422,7 +491,9 @@ fn parse_snapshot(value: &Value) -> Result<ProgramSnapshot, String> {
 }
 
 fn required_string<'a>(value: &'a Value, key: &str) -> Result<&'a str, String> {
-    value.get(key).and_then(Value::as_str)
+    value
+        .get(key)
+        .and_then(Value::as_str)
         .ok_or_else(|| format!("missing string field {key}"))
 }
 
@@ -528,14 +599,21 @@ mod tests {
         let ping = HostRequest::parse_frame(br#"{"protocol_version":1,"request_id":"p1","command":"ping"}"#).unwrap();
         assert_eq!(ping.command, HostCommand::Ping);
         let decompile = HostRequest::parse_frame(br#"{"protocol_version":1,"request_id":"d1","command":"decompile","payload":{"function_address":"0x401000"}}"#).unwrap();
-        assert_eq!(decompile.command, HostCommand::Decompile { function_address: 0x401000 });
+        assert_eq!(
+            decompile.command,
+            HostCommand::Decompile {
+                function_address: 0x401000
+            }
+        );
     }
 
     #[test]
     fn parses_program_snapshot_and_sorts_memory() {
         let frame = br#"{"protocol_version":1,"request_id":"open","command":"open_program","payload":{"name":"sample","language_id":"x86:LE:64:default","compiler_spec_id":"gcc","endianness":"little","memory_blocks":[{"start":"0x2000","bytes_hex":"aabb","executable":true},{"start":"0x1000","bytes_hex":"0102"}],"functions":[{"entry":"0x1000","name":"entry","body_size":8}],"symbols":[{"address":"0x1000","name":"entry","kind":"function"}]}}"#;
         let request = HostRequest::parse_frame(frame).unwrap();
-        let HostCommand::OpenProgram(snapshot) = request.command else { panic!("expected open_program") };
+        let HostCommand::OpenProgram(snapshot) = request.command else {
+            panic!("expected open_program")
+        };
         assert_eq!(snapshot.memory_blocks[0].start, 0x1000);
         assert_eq!(snapshot.memory_blocks[1].bytes, vec![0xaa, 0xbb]);
         assert_eq!(snapshot.functions[0].entry, 0x1000);
@@ -545,7 +623,9 @@ mod tests {
     fn parses_extended_database_metadata() {
         let frame = br#"{"protocol_version":1,"request_id":"db","command":"open_program","payload":{"name":"db-snapshot","language_id":"x86:LE:64:default","compiler_spec_id":"gcc","endianness":"little","memory_blocks":[{"start":"0x1000","bytes_hex":"90c3","executable":true}],"functions":[{"entry":"0x1000","name":"entry","body_size":2}],"symbols":[{"address":"0x1000","name":"entry","kind":"function","size":1,"namespace":"root","type_name":"void ()"}],"relocations":[{"address":"0x1001","kind":"R_X86_64_PC32","symbol":"target","addend":-4}],"comments":[{"address":"0x1000","function_entry":"0x1000","kind":"plate","text":"entry point"}],"references":[{"from":"0x1000","to":"0x1001","kind":"call","is_primary":true}],"data_types":[{"name":"size_t","kind":"typedef","size":8,"signed":false}],"context_values":[{"address":"0x1000","register":"mode","value":1}]}}"#;
         let request = HostRequest::parse_frame(frame).unwrap();
-        let HostCommand::OpenProgram(snapshot) = request.command else { panic!("expected open_program") };
+        let HostCommand::OpenProgram(snapshot) = request.command else {
+            panic!("expected open_program")
+        };
         assert_eq!(snapshot.symbols[0].namespace.as_deref(), Some("root"));
         assert_eq!(snapshot.symbols[0].size, 1);
         assert_eq!(snapshot.comments[0].kind, "plate");
@@ -558,7 +638,9 @@ mod tests {
     fn parses_function_namespace_and_parameter_storage() {
         let frame = br#"{"protocol_version":1,"request_id":"sig","command":"open_program","payload":{"name":"p","language_id":"x86:LE:64:default","compiler_spec_id":"gcc","endianness":"little","functions":[{"entry":4096,"name":"worker","body_size":12,"namespace":"app::detail","calling_convention":"__cdecl","return_type":"int","parameters":[{"ordinal":0,"name":"value","type_name":"unsigned int","storage":"RDI:4"}]}]}}"#;
         let request = HostRequest::parse_frame(frame).unwrap();
-        let HostCommand::OpenProgram(snapshot) = request.command else { panic!("expected open_program") };
+        let HostCommand::OpenProgram(snapshot) = request.command else {
+            panic!("expected open_program")
+        };
         let function = &snapshot.functions[0];
         assert_eq!(function.namespace.as_deref(), Some("app::detail"));
         assert_eq!(function.calling_convention.as_deref(), Some("__cdecl"));
@@ -572,7 +654,9 @@ mod tests {
     fn parses_streamed_memory_block_chunks() {
         let frame = br#"{"protocol_version":1,"request_id":"chunk","command":"add_memory_block_chunk","payload":{"start":"0x1000","total_size":8,"offset":4,"bytes_hex":"aabbccdd","readable":true,"executable":true,"final_chunk":true}}"#;
         let request = HostRequest::parse_frame(frame).unwrap();
-        let HostCommand::AddMemoryBlockChunk(chunk) = request.command else { panic!("expected chunk") };
+        let HostCommand::AddMemoryBlockChunk(chunk) = request.command else {
+            panic!("expected chunk")
+        };
         assert_eq!(chunk.start, 0x1000);
         assert_eq!(chunk.total_size, 8);
         assert_eq!(chunk.offset, 4);
@@ -595,7 +679,9 @@ mod tests {
     #[test]
     fn rejects_unsupported_versions_and_commands() {
         assert!(HostRequest::parse_frame(br#"{"protocol_version":2,"request_id":"x","command":"ping"}"#).is_err());
-        assert!(HostRequest::parse_frame(br#"{"protocol_version":1,"request_id":"x","command":"execute_shell"}"#).is_err());
+        assert!(
+            HostRequest::parse_frame(br#"{"protocol_version":1,"request_id":"x","command":"execute_shell"}"#).is_err()
+        );
     }
 
     #[test]

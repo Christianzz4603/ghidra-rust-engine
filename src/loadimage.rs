@@ -110,7 +110,10 @@ impl RawLoadImage {
             .read_to_end(&mut bytes)
             .map_err(|_| Error::Lowlevel(format!("Unable to read raw image file: {}", self.filename)))?;
         if bytes.len() as u64 > MAX_LOAD_IMAGE_BYTES {
-            return Err(Error::Lowlevel(format!("Raw image exceeds the {} byte safety limit", MAX_LOAD_IMAGE_BYTES)));
+            return Err(Error::Lowlevel(format!(
+                "Raw image exceeds the {} byte safety limit",
+                MAX_LOAD_IMAGE_BYTES
+            )));
         }
         self.content = Some(Arc::new(bytes));
         Ok(())
@@ -165,7 +168,6 @@ impl LoadImage for RawLoadImage {
         self.vma = self.vma.wrapping_add(adjust as u64);
     }
 }
-
 
 #[cfg(test)]
 mod shared_image_tests {

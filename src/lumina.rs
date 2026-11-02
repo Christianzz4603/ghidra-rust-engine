@@ -45,7 +45,9 @@ impl LuminaClient {
         let mut url = format!("{}/api/function/{}", self.base_url, percent_encode(key.as_bytes()));
         if let Some(md5) = binary_md5 {
             if md5.len() != 32 || !md5.bytes().all(|byte| byte.is_ascii_hexdigit()) {
-                return Err(Error::Lowlevel("binary MD5 must contain exactly 32 hexadecimal characters".to_string()));
+                return Err(Error::Lowlevel(
+                    "binary MD5 must contain exactly 32 hexadecimal characters".to_string(),
+                ));
             }
             url.push_str("?md5=");
             url.push_str(md5);
@@ -62,8 +64,7 @@ impl LuminaClient {
         let body = response
             .into_string()
             .map_err(|error| Error::Lowlevel(format!("could not read Lumina response: {error}")))?;
-        serde_json::from_str(&body)
-            .map_err(|error| Error::Lowlevel(format!("Lumina returned invalid JSON: {error}")))
+        serde_json::from_str(&body).map_err(|error| Error::Lowlevel(format!("Lumina returned invalid JSON: {error}")))
     }
 }
 
@@ -85,7 +86,10 @@ mod tests {
 
     #[test]
     fn percent_encoding_preserves_query_syntax_safely() {
-        assert_eq!(percent_encode(b"memcpy + std::vector"), "memcpy%20%2B%20std%3A%3Avector");
+        assert_eq!(
+            percent_encode(b"memcpy + std::vector"),
+            "memcpy%20%2B%20std%3A%3Avector"
+        );
     }
 
     #[test]

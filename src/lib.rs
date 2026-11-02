@@ -10,8 +10,8 @@
     clippy::should_implement_trait
 )]
 
-pub mod action;
 pub mod abi;
+pub mod action;
 pub mod address;
 pub mod analysis;
 pub mod architecture;
@@ -40,15 +40,17 @@ pub mod emulate;
 pub mod emulateutil;
 pub mod error;
 pub mod expression;
+pub mod filemanage;
+pub mod flirt;
 pub mod float;
 pub mod flow;
 pub mod fspec;
 pub mod funcdata;
+pub mod ghidra_host;
+pub mod ghidra_worker;
 pub mod globalcontext;
 pub mod grammar;
 pub mod graph;
-pub mod ghidra_host;
-pub mod ghidra_worker;
 pub mod heritage;
 pub mod ifacedecomp;
 pub mod inject_sleigh;
@@ -59,10 +61,13 @@ pub mod jumptable;
 pub mod kotlin;
 pub mod loadimage;
 pub mod loadimage_xml;
+#[cfg(feature = "lumina")]
+pub mod lumina;
 pub mod marshal;
 pub mod marshal_registry;
 pub mod memstate;
 pub mod merge;
+pub mod microcode;
 pub mod modelrules;
 pub mod multiprecision;
 pub mod object_arch;
@@ -86,19 +91,14 @@ pub mod printjava;
 pub mod printlanguage;
 pub mod program;
 pub mod pseudocode;
-pub mod microcode;
-pub mod reconstruction;
-pub mod flirt;
-pub mod filemanage;
-#[cfg(feature = "lumina")]
-pub mod lumina;
 pub mod rangemap;
 pub mod rangeutil;
 pub mod raw_arch;
+pub mod reconstruction;
 pub mod ruleaction;
 pub mod semantics;
-pub mod slaformat;
 pub mod signature;
+pub mod slaformat;
 pub mod sleigh;
 pub mod sleigh_arch;
 pub mod sleighbase;
@@ -124,28 +124,43 @@ pub mod varnode;
 pub mod xml;
 pub mod xml_arch;
 
+pub use abi::{Abi, AbiArgumentAllocator, AbiLocation, AbiProfile, AbiValueClass};
 pub use analysis::{
-    AnalysisEngine, AnalysisEvent, AnalysisOptions, AnalysisReport, AnalysisSelection, FullAnalysisReport, FunctionAnalysis,
+    AnalysisEngine, AnalysisEvent, AnalysisOptions, AnalysisReport, AnalysisSelection, FullAnalysisReport,
+    FunctionAnalysis,
 };
 pub use error::{Error, Result};
-pub use abi::{Abi, AbiArgumentAllocator, AbiLocation, AbiProfile, AbiValueClass};
-pub use ssa::{SsaAnalyzer, SsaBlock, SsaDefinition, SsaOperation, SsaPhi, SsaReport, SsaUse, SsaVersion};
+pub use flirt::{FlirtAnalyzer, FlirtMatch, FlirtOptions, FlirtReport};
+pub use ghidra_host::{
+    CommentDescriptor, ContextValueDescriptor, DataTypeDescriptor, Endianness, FunctionDescriptor, HostCommand,
+    HostRequest, HostResponse, MemoryBlock, ParameterDescriptor, ProgramSnapshot, ReferenceDescriptor,
+    RelocationDescriptor, SymbolDescriptor,
+};
 pub use intelligence::{
     BasicBlock, BinaryIntelligence, Confidence, ControlFlowGraph, CrossReference, DataFlowSummary, FlowEdge, FlowKind,
-    FunctionFingerprint, FunctionPrototype, FunctionAnalysisFailure, IntelligenceReport, ReferenceKind, SimilarFunction, TypeEvidence,
+    FunctionAnalysisFailure, FunctionFingerprint, FunctionPrototype, IntelligenceReport, ReferenceKind,
+    SimilarFunction, TypeEvidence,
 };
-pub use reconstruction::{CompilerPattern, CompilerPatternKind, ControlFlowReconstruction, DecompilerReconstructor, ExpressionNode, ExpressionOperand, ExpressionReconstruction, FunctionReconstruction, HighLevelReconstruction, ParameterEvidence, ReconstructedSignature, ReturnEvidence, StructuredRegion, StructuredRegionKind, VariableLifetime};
-pub use microcode::{DefUseEdge, MicrocodeAnalyzer, MicrocodeLocation, MicrocodeReport, VarnodeIdentity};
-pub use type_recovery::{RecoveredTypeKind, RecoveredVariableType, TypeConstraintEvidence, TypeRecoveryAnalyzer, TypeRecoveryReport};
-pub use pseudocode::{DecompileBatch, DecompileFailure, FunctionPseudocode, PseudocodeDecompiler, PseudocodeLine, PseudocodeOptions};
-pub use flirt::{FlirtAnalyzer, FlirtMatch, FlirtOptions, FlirtReport};
 #[cfg(feature = "lumina")]
 pub use lumina::LuminaClient;
-pub use signature::{FunctionSignature, SignatureFeature, SignatureKind, SignatureSettings};
-pub use ghidra_host::{CommentDescriptor, ContextValueDescriptor, DataTypeDescriptor, Endianness, FunctionDescriptor, ParameterDescriptor, HostCommand, HostRequest, HostResponse, MemoryBlock, ProgramSnapshot, ReferenceDescriptor, RelocationDescriptor, SymbolDescriptor};
+pub use microcode::{DefUseEdge, MicrocodeAnalyzer, MicrocodeLocation, MicrocodeReport, VarnodeIdentity};
 pub use program::{
     CallEdge, CodeScanSummary, CodeSectionSummary, DataEntry, DisassemblyGap, DisassemblyReport, FunctionEntry,
-    FunctionSource, ImportedDataType, ImportedFunctionSignature, ImportedParameter, Instruction, InstructionPcode, PcodeOperation, PcodeVarnode, Program, ProgramReference, ProgramRelocation, StringEntry, SymbolLoading,
+    FunctionSource, ImportedDataType, ImportedFunctionSignature, ImportedParameter, Instruction, InstructionPcode,
+    PcodeOperation, PcodeVarnode, Program, ProgramReference, ProgramRelocation, StringEntry, SymbolLoading,
+};
+pub use pseudocode::{
+    DecompileBatch, DecompileFailure, FunctionPseudocode, PseudocodeDecompiler, PseudocodeLine, PseudocodeOptions,
+};
+pub use reconstruction::{
+    CompilerPattern, CompilerPatternKind, ControlFlowReconstruction, DecompilerReconstructor, ExpressionNode,
+    ExpressionOperand, ExpressionReconstruction, FunctionReconstruction, HighLevelReconstruction, ParameterEvidence,
+    ReconstructedSignature, ReturnEvidence, StructuredRegion, StructuredRegionKind, VariableLifetime,
+};
+pub use signature::{FunctionSignature, SignatureFeature, SignatureKind, SignatureSettings};
+pub use ssa::{SsaAnalyzer, SsaBlock, SsaDefinition, SsaOperation, SsaPhi, SsaReport, SsaUse, SsaVersion};
+pub use type_recovery::{
+    RecoveredTypeKind, RecoveredVariableType, TypeConstraintEvidence, TypeRecoveryAnalyzer, TypeRecoveryReport,
 };
 
 pub use dex::{Apk, DexClass, DexFile, DexMethod};

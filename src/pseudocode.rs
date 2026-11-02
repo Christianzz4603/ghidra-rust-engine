@@ -231,8 +231,16 @@ mod tests {
             considered: 2,
             functions: Vec::new(),
             failures: vec![
-                DecompileFailure { address: 1, name: "a".into(), message: "x".into() },
-                DecompileFailure { address: 2, name: "b".into(), message: "y".into() },
+                DecompileFailure {
+                    address: 1,
+                    name: "a".into(),
+                    message: "x".into(),
+                },
+                DecompileFailure {
+                    address: 2,
+                    name: "b".into(),
+                    message: "y".into(),
+                },
             ],
         };
         assert_eq!(batch.succeeded(), 0);

@@ -99,11 +99,14 @@ impl FunctionSignature {
                     operation_hash.bytes(input.space.as_bytes());
                     operation_hash.u64(u64::from(input.size));
                 }
-                push_feature(&mut features, SignatureFeature {
-                    kind: SignatureKind::Operation,
-                    hash: operation_hash.finish32(),
-                    weight: 1,
-                });
+                push_feature(
+                    &mut features,
+                    SignatureFeature {
+                        kind: SignatureKind::Operation,
+                        hash: operation_hash.finish32(),
+                        weight: 1,
+                    },
+                );
 
                 block_ops += 1;
                 if is_branch(operation.opcode) {
@@ -119,11 +122,14 @@ impl FunctionSignature {
                         for input in &operation.inputs {
                             call_hash.u64(u64::from(input.size));
                         }
-                        push_feature(&mut features, SignatureFeature {
-                            kind: SignatureKind::CallShape,
-                            hash: call_hash.finish32(),
-                            weight: 2,
-                        });
+                        push_feature(
+                            &mut features,
+                            SignatureFeature {
+                                kind: SignatureKind::CallShape,
+                                hash: call_hash.finish32(),
+                                weight: 2,
+                            },
+                        );
                     }
                 }
 
@@ -139,11 +145,14 @@ impl FunctionSignature {
                         } else {
                             constant_hash.u64(input.offset);
                         }
-                        push_feature(&mut features, SignatureFeature {
-                            kind: SignatureKind::ConstantClass,
-                            hash: constant_hash.finish32(),
-                            weight: 1,
-                        });
+                        push_feature(
+                            &mut features,
+                            SignatureFeature {
+                                kind: SignatureKind::ConstantClass,
+                                hash: constant_hash.finish32(),
+                                weight: 1,
+                            },
+                        );
                     } else if settings.include_dataflow {
                         let identity = (input.space.clone(), input.offset, input.size);
                         if let Some(definition_hash) = last_definition.get(&identity) {
@@ -152,11 +161,14 @@ impl FunctionSignature {
                             dataflow_hash.u64(u64::from(*definition_hash));
                             dataflow_hash.bytes(opcode_name.as_bytes());
                             dataflow_hash.u64(input_index as u64);
-                            push_feature(&mut features, SignatureFeature {
-                                kind: SignatureKind::DataFlow,
-                                hash: dataflow_hash.finish32(),
-                                weight: 2,
-                            });
+                            push_feature(
+                                &mut features,
+                                SignatureFeature {
+                                    kind: SignatureKind::DataFlow,
+                                    hash: dataflow_hash.finish32(),
+                                    weight: 2,
+                                },
+                            );
                         }
                     }
                 }
@@ -172,12 +184,7 @@ impl FunctionSignature {
                 }
 
                 if is_terminator(operation.opcode) {
-                    add_block_feature(
-                        &mut features,
-                        block_ops,
-                        block_branches,
-                        block_calls,
-                    );
+                    add_block_feature(&mut features, block_ops, block_branches, block_calls);
                     block_ops = 0;
                     block_branches = 0;
                     block_calls = 0;
@@ -232,7 +239,11 @@ impl FunctionSignature {
             intersection += a.min(b);
             union += a.max(b);
         }
-        if union == 0 { 1.0 } else { intersection as f32 / union as f32 }
+        if union == 0 {
+            1.0
+        } else {
+            intersection as f32 / union as f32
+        }
     }
 
     /// Encode a compact, versioned binary signature. No platform-dependent fields
@@ -277,13 +288,21 @@ impl FunctionSignature {
             return Err(format!("signature feature count {count} exceeds safety limit"));
         }
         let expected = 28usize
-            .checked_add(count.checked_mul(FEATURE_RECORD_SIZE).ok_or("signature size overflow")?)
+            .checked_add(
+                count
+                    .checked_mul(FEATURE_RECORD_SIZE)
+                    .ok_or("signature size overflow")?,
+            )
             .ok_or("signature size overflow")?;
         if bytes.len() != expected {
-            return Err(format!("signature payload length mismatch: expected {expected}, got {}", bytes.len()));
+            return Err(format!(
+                "signature payload length mismatch: expected {expected}, got {}",
+                bytes.len()
+            ));
         }
         let max_features_u64 = u64::from_le_bytes(bytes[12..20].try_into().unwrap());
-        let max_features = usize::try_from(max_features_u64).map_err(|_| "signature feature limit does not fit this platform")?;
+        let max_features =
+            usize::try_from(max_features_u64).map_err(|_| "signature feature limit does not fit this platform")?;
         let stored_hash = u64::from_le_bytes(bytes[20..28].try_into().unwrap());
         let mut features = Vec::with_capacity(count);
         let mut cursor = 28;
@@ -335,11 +354,17 @@ fn add_block_feature(features: &mut Vec<SignatureFeature>, operations: usize, br
 }
 
 fn is_call(opcode: crate::opcodes::OpCode) -> bool {
-    matches!(opcode, crate::opcodes::OpCode::Call | crate::opcodes::OpCode::Callind | crate::opcodes::OpCode::Callother)
+    matches!(
+        opcode,
+        crate::opcodes::OpCode::Call | crate::opcodes::OpCode::Callind | crate::opcodes::OpCode::Callother
+    )
 }
 
 fn is_branch(opcode: crate::opcodes::OpCode) -> bool {
-    matches!(opcode, crate::opcodes::OpCode::Branch | crate::opcodes::OpCode::Cbranch | crate::opcodes::OpCode::Branchind)
+    matches!(
+        opcode,
+        crate::opcodes::OpCode::Branch | crate::opcodes::OpCode::Cbranch | crate::opcodes::OpCode::Branchind
+    )
 }
 
 fn is_terminator(opcode: crate::opcodes::OpCode) -> bool {
@@ -347,7 +372,11 @@ fn is_terminator(opcode: crate::opcodes::OpCode) -> bool {
 }
 
 fn bit_width_class(value: u64) -> u64 {
-    if value == 0 { 0 } else { u64::from(64 - value.leading_zeros()) }
+    if value == 0 {
+        0
+    } else {
+        u64::from(64 - value.leading_zeros())
+    }
 }
 
 fn overall_hash(features: &[SignatureFeature], settings: SignatureSettings) -> u64 {
@@ -367,7 +396,9 @@ fn overall_hash(features: &[SignatureFeature], settings: SignatureSettings) -> u
 struct StableHash(u64);
 
 impl StableHash {
-    fn new() -> Self { Self(0xcbf29ce484222325) }
+    fn new() -> Self {
+        Self(0xcbf29ce484222325)
+    }
 
     fn bytes(&mut self, bytes: &[u8]) {
         self.u64(bytes.len() as u64);
@@ -388,7 +419,9 @@ impl StableHash {
         (self.0 ^ (self.0 >> 32)) as u32
     }
 
-    fn finish64(&self) -> u64 { self.0 }
+    fn finish64(&self) -> u64 {
+        self.0
+    }
 }
 
 #[cfg(test)]
@@ -398,11 +431,20 @@ mod tests {
     use crate::program::{PcodeOperation, PcodeVarnode};
 
     fn vn(space: &str, offset: u64, size: u32) -> PcodeVarnode {
-        PcodeVarnode { space: space.into(), offset, size }
+        PcodeVarnode {
+            space: space.into(),
+            offset,
+            size,
+        }
     }
 
     fn op(opcode: OpCode, output: Option<PcodeVarnode>, inputs: Vec<PcodeVarnode>) -> PcodeOperation {
-        PcodeOperation { opcode, output, inputs, space: None }
+        PcodeOperation {
+            opcode,
+            output,
+            inputs,
+            space: None,
+        }
     }
 
     fn sample(value: u64) -> Vec<InstructionPcode> {
@@ -415,7 +457,11 @@ mod tests {
             InstructionPcode {
                 address: 0x1004,
                 length: 4,
-                operations: vec![op(OpCode::IntAdd, Some(vn("unique", 16, 8)), vec![vn("unique", 8, 8), vn("const", 1, 8)])],
+                operations: vec![op(
+                    OpCode::IntAdd,
+                    Some(vn("unique", 16, 8)),
+                    vec![vn("unique", 8, 8), vn("const", 1, 8)],
+                )],
             },
             InstructionPcode {
                 address: 0x1008,
@@ -443,7 +489,10 @@ mod tests {
 
     #[test]
     fn raw_constant_mode_distinguishes_values() {
-        let settings = SignatureSettings { normalize_constants: false, ..Default::default() };
+        let settings = SignatureSettings {
+            normalize_constants: false,
+            ..Default::default()
+        };
         let a = FunctionSignature::generate(&sample(7), settings);
         let b = FunctionSignature::generate(&sample(9), settings);
         assert_ne!(a.overall_hash, b.overall_hash);
@@ -462,7 +511,10 @@ mod tests {
 
     #[test]
     fn feature_limit_is_enforced() {
-        let settings = SignatureSettings { max_features: 2, ..Default::default() };
+        let settings = SignatureSettings {
+            max_features: 2,
+            ..Default::default()
+        };
         let signature = FunctionSignature::generate(&sample(7), settings);
         assert_eq!(signature.features.len(), 2);
     }

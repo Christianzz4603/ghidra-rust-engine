@@ -110,7 +110,9 @@ impl Program {
             };
             let mut chunk_start = aligned_start;
             while chunk_start < section.end && scanned_bytes < MAX_ARM64_SCAN_BYTES {
-                let chunk_end = chunk_start.saturating_add(CHUNK_SIZE + 12).min(section.end)
+                let chunk_end = chunk_start
+                    .saturating_add(CHUNK_SIZE + 12)
+                    .min(section.end)
                     .min(chunk_start.saturating_add(MAX_ARM64_SCAN_BYTES - scanned_bytes));
                 let Ok(bytes) = self.read_code(chunk_start, chunk_end - chunk_start) else {
                     chunk_start = chunk_start.saturating_add(CHUNK_SIZE) & !3;

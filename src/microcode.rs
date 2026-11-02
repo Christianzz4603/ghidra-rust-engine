@@ -89,12 +89,9 @@ impl MicrocodeAnalyzer {
                 for (input_index, input) in operation.inputs.iter().enumerate() {
                     report.use_count += 1;
                     if input.space == "const" {
-                        report.constant_inputs.push((
-                            location,
-                            input_index,
-                            input.offset,
-                            input.size,
-                        ));
+                        report
+                            .constant_inputs
+                            .push((location, input_index, input.offset, input.size));
                         continue;
                     }
 
@@ -184,7 +181,11 @@ mod tests {
             InstructionPcode {
                 address: 0x1004,
                 length: 4,
-                operations: vec![op(OpCode::IntAdd, Some(varnode("unique", 16)), vec![varnode("unique", 8), varnode("const", 1)])],
+                operations: vec![op(
+                    OpCode::IntAdd,
+                    Some(varnode("unique", 16)),
+                    vec![varnode("unique", 8), varnode("const", 1)],
+                )],
             },
         ];
 
@@ -215,7 +216,11 @@ mod tests {
         let instructions = vec![InstructionPcode {
             address: 0x3000,
             length: 4,
-            operations: vec![op(OpCode::IntAdd, Some(varnode("unique", 32)), vec![varnode("const", 2), varnode("const", 3)])],
+            operations: vec![op(
+                OpCode::IntAdd,
+                Some(varnode("unique", 32)),
+                vec![varnode("const", 2), varnode("const", 3)],
+            )],
         }];
 
         let report = MicrocodeAnalyzer.analyze_instructions(&instructions);

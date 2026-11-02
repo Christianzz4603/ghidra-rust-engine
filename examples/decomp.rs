@@ -4,9 +4,9 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 
 use ghidra_decompiler::ifacedecomp::{mainloop, register_all_commands, register_console_commands};
-use ghidra_decompiler::{DecompilerReconstructor, Program};
 use ghidra_decompiler::interface::{IfaceError, IfaceStatus, new_out_stream, out_write};
 use ghidra_decompiler::sleigh_arch::{add_global_language_directory, scan_global_sleigh_directories};
+use ghidra_decompiler::{DecompilerReconstructor, Program};
 
 #[path = "webui.rs"]
 mod webui;
@@ -149,7 +149,9 @@ fn main() -> ExitCode {
         .is_some_and(|arg| arg == "--help" || arg == "-h" || arg == "help")
     {
         println!("Ghidra Rust Engine {}", version());
-        println!("Usage: ghidra-rust_cli [--version | --help | setup | update | web [--port=PORT] | reconstruct <binary> <address>]");
+        println!(
+            "Usage: ghidra-rust_cli [--version | --help | setup | update | web [--port=PORT] | reconstruct <binary> <address>]"
+        );
         println!();
         println!("Run without arguments to open the interactive decompiler console.");
         println!("Run `ghidra-rust_cli web` to launch the built-in browser workspace.");
@@ -176,15 +178,26 @@ fn main() -> ExitCode {
         };
     }
     if args.get(1).is_some_and(|arg| arg == "web" || arg == "--web") {
-        let port = args.iter().skip(2).find_map(|arg| arg.strip_prefix("--port=").and_then(|v| v.parse::<u16>().ok())).unwrap_or(8080);
-        return match webui::run(port) { Ok(()) => ExitCode::SUCCESS, Err(err) => { eprintln!("Web UI failed: {err}"); ExitCode::from(1) } };
+        let port = args
+            .iter()
+            .skip(2)
+            .find_map(|arg| arg.strip_prefix("--port=").and_then(|v| v.parse::<u16>().ok()))
+            .unwrap_or(8080);
+        return match webui::run(port) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(err) => {
+                eprintln!("Web UI failed: {err}");
+                ExitCode::from(1)
+            }
+        };
     }
     if args.get(1).is_some_and(|arg| arg == "reconstruct") {
         let (Some(binary), Some(raw_address)) = (args.get(2), args.get(3)) else {
             eprintln!("Usage: ghidra-rust_cli reconstruct <binary> <address>");
             return ExitCode::from(2);
         };
-        let address = raw_address.strip_prefix("0x")
+        let address = raw_address
+            .strip_prefix("0x")
             .map(|value| u64::from_str_radix(value, 16))
             .unwrap_or_else(|| raw_address.parse::<u64>());
         let address = match address {
@@ -208,7 +221,10 @@ fn main() -> ExitCode {
                 return ExitCode::from(1);
             }
         };
-        println!("Function: {} at {:#x}", reconstruction.function.name, reconstruction.function.address);
+        println!(
+            "Function: {} at {:#x}",
+            reconstruction.function.name, reconstruction.function.address
+        );
         if let Some(declaration) = &reconstruction.decompiler_declaration {
             println!("Recovered declaration: {declaration}");
         }

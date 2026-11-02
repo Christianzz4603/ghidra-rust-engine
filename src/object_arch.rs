@@ -216,7 +216,8 @@ fn infer_language(file: &object::File<'_>) -> Option<String> {
 }
 
 fn valid_file_range(offset: u64, size: u64, data_len: usize) -> bool {
-    usize::try_from(offset).ok()
+    usize::try_from(offset)
+        .ok()
         .and_then(|start| usize::try_from(size).ok().and_then(|length| start.checked_add(length)))
         .is_some_and(|end| end <= data_len)
 }
@@ -340,7 +341,9 @@ fn parse_generic(file: &object::File<'_>, parsed: &mut ParsedObject, data_len: u
                 flags |= SEC_LOAD;
             }
         }
-        let file_range = section.file_range().filter(|(offset, size)| valid_file_range(*offset, *size, data_len));
+        let file_range = section
+            .file_range()
+            .filter(|(offset, size)| valid_file_range(*offset, *size, data_len));
         if file_range.is_some() {
             flags |= SEC_HAS_CONTENTS;
         }
@@ -431,13 +434,16 @@ fn parse_binary(data: &[u8]) -> ParsedObject {
 fn is_supported_object_magic(magic: [u8; 4]) -> bool {
     magic == [0x7f, b'E', b'L', b'F']
         || &magic[..2] == b"MZ"
-        || matches!(magic,
-            [0xce, 0xfa, 0xed, 0xfe] | [0xfe, 0xed, 0xfa, 0xce]
-            | [0xcf, 0xfa, 0xed, 0xfe] | [0xfe, 0xed, 0xfa, 0xcf])
+        || matches!(
+            magic,
+            [0xce, 0xfa, 0xed, 0xfe] | [0xfe, 0xed, 0xfa, 0xce] | [0xcf, 0xfa, 0xed, 0xfe] | [0xfe, 0xed, 0xfa, 0xcf]
+        )
 }
 
 fn is_object_file_path(filename: &str) -> bool {
-    let Ok(mut file) = std::fs::File::open(filename) else { return false };
+    let Ok(mut file) = std::fs::File::open(filename) else {
+        return false;
+    };
     let mut magic = [0u8; 4];
     file.read_exact(&mut magic).is_ok() && is_supported_object_magic(magic)
 }
@@ -502,7 +508,10 @@ impl ObjectLoadImage {
             .read_to_end(&mut bytes)
             .map_err(|_| Error::Lowlevel(format!("Unable to read image file: {}", self.filename)))?;
         if bytes.len() as u64 > MAX_LOAD_IMAGE_BYTES {
-            return Err(Error::Lowlevel(format!("Image exceeds the {} byte safety limit", MAX_LOAD_IMAGE_BYTES)));
+            return Err(Error::Lowlevel(format!(
+                "Image exceeds the {} byte safety limit",
+                MAX_LOAD_IMAGE_BYTES
+            )));
         }
         self.open_bytes(Arc::new(bytes))
     }

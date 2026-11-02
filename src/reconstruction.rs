@@ -9,11 +9,17 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
 use crate::error::Result;
 use crate::intelligence::{BinaryIntelligence, Confidence, ControlFlowGraph, FlowKind, FunctionAnalysisFailure};
 use crate::microcode::{MicrocodeAnalyzer, MicrocodeLocation, VarnodeIdentity};
-use crate::opcodes::{get_opname, OpCode};
+use crate::opcodes::{OpCode, get_opname};
 use crate::program::{FunctionEntry, Instruction, InstructionPcode, PcodeOperation, Program};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum StructuredRegionKind { If, IfElse, Loop, SwitchCandidate, Unstructured }
+pub enum StructuredRegionKind {
+    If,
+    IfElse,
+    Loop,
+    SwitchCandidate,
+    Unstructured,
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StructuredRegion {
@@ -103,9 +109,17 @@ pub struct ExpressionReconstruction {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum CompilerPatternKind {
-    StackFrameSetup, StackFrameTeardown, StackCanary,
-    PositionIndependentAddressing, TailCall, FunctionThunk,
-    LoopVectorizationCandidate, MultiplyAccumulate, CompareAndSelect, BitMasking, JumpTableDispatch,
+    StackFrameSetup,
+    StackFrameTeardown,
+    StackCanary,
+    PositionIndependentAddressing,
+    TailCall,
+    FunctionThunk,
+    LoopVectorizationCandidate,
+    MultiplyAccumulate,
+    CompareAndSelect,
+    BitMasking,
+    JumpTableDispatch,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -142,10 +156,16 @@ pub struct DecompilerReconstructor;
 
 impl DecompilerReconstructor {
     pub fn reconstruct_function(&self, program: &mut Program, address: u64) -> Result<FunctionReconstruction> {
-        let function = program.functions()?.into_iter().find(|f| f.address == address)
+        let function = program
+            .functions()?
+            .into_iter()
+            .find(|f| f.address == address)
             .ok_or_else(|| crate::Error::Lowlevel(format!("no function found at {address:#x}")))?;
-        let cfg = BinaryIntelligence::new(program).analyze_one(address)?
-            .control_flow_graphs.into_iter().next();
+        let cfg = BinaryIntelligence::new(program)
+            .analyze_one(address)?
+            .control_flow_graphs
+            .into_iter()
+            .next();
         self.reconstruct_with_context(program, function, cfg)
     }
 
@@ -157,7 +177,11 @@ impl DecompilerReconstructor {
     ) -> Result<FunctionReconstruction> {
         let address = function.address;
         let size = program.function_size(address)?;
-        let instructions = if size == 0 { Vec::new() } else { program.disassemble_range(address, size)? };
+        let instructions = if size == 0 {
+            Vec::new()
+        } else {
+            program.disassemble_range(address, size)?
+        };
         let pseudocode = program.decompile(address)?;
         let decompiler_declaration = extract_declaration(&pseudocode);
         let pcode = program.function_pcode_shared(address)?;
@@ -173,8 +197,14 @@ impl DecompilerReconstructor {
             "Control-flow regions, lifetimes, prototypes, and compiler patterns are evidence-based reconstructions.".into(),
             "Optimized binaries can erase source-level variable boundaries and types; ambiguous findings remain heuristic.".into(),
         ];
-        if control_flow.regions.iter().any(|r| r.kind == StructuredRegionKind::Unstructured) {
-            notes.push("At least one conditional edge could not be confidently represented as a structured region.".into());
+        if control_flow
+            .regions
+            .iter()
+            .any(|r| r.kind == StructuredRegionKind::Unstructured)
+        {
+            notes.push(
+                "At least one conditional edge could not be confidently represented as a structured region.".into(),
+            );
         }
         if signature.as_ref().is_some_and(|s| s.parameters.is_empty()) {
             notes.push("No reliable incoming register or stack parameter storage was identified; this does not prove the function has no parameters.".into());
@@ -186,11 +216,22 @@ impl DecompilerReconstructor {
             function,
             pseudocode,
             decompiler_declaration,
-            result: HighLevelReconstruction { type_recovery, control_flow, variables, signature, expressions, compiler_patterns, notes },
+            result: HighLevelReconstruction {
+                type_recovery,
+                control_flow,
+                variables,
+                signature,
+                expressions,
+                compiler_patterns,
+                notes,
+            },
         })
     }
 
-    pub fn reconstruct_all(&self, program: &mut Program) -> Result<Vec<std::result::Result<FunctionReconstruction, FunctionAnalysisFailure>>> {
+    pub fn reconstruct_all(
+        &self,
+        program: &mut Program,
+    ) -> Result<Vec<std::result::Result<FunctionReconstruction, FunctionAnalysisFailure>>> {
         let intelligence = BinaryIntelligence::new(program).analyze_all()?;
         self.reconstruct_all_with_intelligence(program, &intelligence)
     }
@@ -223,7 +264,6 @@ impl DecompilerReconstructor {
         }
         Ok(output)
     }
-
 }
 
 fn extract_declaration(pseudocode: &str) -> Option<String> {
@@ -234,7 +274,9 @@ fn extract_declaration(pseudocode: &str) -> Option<String> {
 
 fn reconstruct_control_flow(cfg: &ControlFlowGraph) -> ControlFlowReconstruction {
     let nodes: Vec<u64> = cfg.blocks.iter().map(|b| b.start).collect();
-    let Some(&entry) = nodes.first() else { return ControlFlowReconstruction::default() };
+    let Some(&entry) = nodes.first() else {
+        return ControlFlowReconstruction::default();
+    };
     let node_set: BTreeSet<u64> = nodes.iter().copied().collect();
     let indices: HashMap<u64, usize> = nodes.iter().enumerate().map(|(i, node)| (*node, i)).collect();
     let mut predecessors = BTreeMap::<u64, BTreeSet<u64>>::new();
@@ -243,7 +285,9 @@ fn reconstruct_control_flow(cfg: &ControlFlowGraph) -> ControlFlowReconstruction
     let mut fallthroughs = HashMap::<u64, u64>::new();
     for edge in &cfg.edges {
         if edge.kind == FlowKind::Fallthrough {
-            if let Some(to) = edge.to { fallthroughs.entry(edge.from).or_insert(to); }
+            if let Some(to) = edge.to {
+                fallthroughs.entry(edge.from).or_insert(to);
+            }
         }
         if let Some(to) = edge.to.filter(|to| node_set.contains(to)) {
             successors.entry(edge.from).or_default().insert(to);
@@ -259,7 +303,9 @@ fn reconstruct_control_flow(cfg: &ControlFlowGraph) -> ControlFlowReconstruction
     let words = (nodes.len() + 63) / 64;
     let mut all = vec![u64::MAX; words];
     if nodes.len() % 64 != 0 {
-        if let Some(last) = all.last_mut() { *last = (1u64 << (nodes.len() % 64)) - 1; }
+        if let Some(last) = all.last_mut() {
+            *last = (1u64 << (nodes.len() % 64)) - 1;
+        }
     }
     let mut dom = vec![all.clone(); nodes.len()];
     dom[0].fill(0);
@@ -269,34 +315,55 @@ fn reconstruct_control_flow(cfg: &ControlFlowGraph) -> ControlFlowReconstruction
         changed = false;
         for node_index in 1..nodes.len() {
             let preds = &predecessor_indices[node_index];
-            let mut next = if let Some(&first) = preds.first() { dom[first].clone() } else { vec![0; words] };
+            let mut next = if let Some(&first) = preds.first() {
+                dom[first].clone()
+            } else {
+                vec![0; words]
+            };
             for &pred in preds.iter().skip(1) {
-                for (word, other) in next.iter_mut().zip(&dom[pred]) { *word &= *other; }
+                for (word, other) in next.iter_mut().zip(&dom[pred]) {
+                    *word &= *other;
+                }
             }
             next[node_index / 64] |= 1u64 << (node_index % 64);
-            if next != dom[node_index] { dom[node_index] = next; changed = true; }
+            if next != dom[node_index] {
+                dom[node_index] = next;
+                changed = true;
+            }
         }
     }
     let mut dominators = BTreeMap::<u64, BTreeSet<u64>>::new();
     for (node_index, node) in nodes.iter().enumerate() {
-        let set = nodes.iter().enumerate().filter_map(|(candidate, address)| {
-            (dom[node_index][candidate / 64] & (1u64 << (candidate % 64)) != 0).then_some(*address)
-        }).collect();
+        let set = nodes
+            .iter()
+            .enumerate()
+            .filter_map(|(candidate, address)| {
+                (dom[node_index][candidate / 64] & (1u64 << (candidate % 64)) != 0).then_some(*address)
+            })
+            .collect();
         dominators.insert(*node, set);
     }
     let mut result = ControlFlowReconstruction {
-        block_count: cfg.blocks.len(), edge_count: cfg.edges.len(),
-        dominators: dominators.iter().map(|(k, v)| (*k, v.iter().copied().collect())).collect(),
+        block_count: cfg.blocks.len(),
+        edge_count: cfg.edges.len(),
+        dominators: dominators
+            .iter()
+            .map(|(k, v)| (*k, v.iter().copied().collect()))
+            .collect(),
         ..Default::default()
     };
     for edge in &cfg.edges {
         let Some(target) = edge.to else { continue };
-        if indices.get(&edge.from).zip(indices.get(&target)).is_some_and(|(&from, &to)| {
-            dom[from][to / 64] & (1u64 << (to % 64)) != 0
-        }) {
+        if indices
+            .get(&edge.from)
+            .zip(indices.get(&target))
+            .is_some_and(|(&from, &to)| dom[from][to / 64] & (1u64 << (to % 64)) != 0)
+        {
             result.loop_headers.push(target);
             result.regions.push(StructuredRegion {
-                kind: StructuredRegionKind::Loop, header: target, join: Some(target),
+                kind: StructuredRegionKind::Loop,
+                header: target,
+                join: Some(target),
                 members: natural_loop_members(target, edge.from, &predecessors),
                 confidence: edge.confidence,
                 evidence: format!("Back edge from {:#x} to dominating block {target:#x}", edge.from),
@@ -309,8 +376,11 @@ fn reconstruct_control_flow(cfg: &ControlFlowGraph) -> ControlFlowReconstruction
         let Some(branch_target) = edge.to else { continue };
         let Some(&fallthrough) = fallthroughs.get(&edge.from) else {
             result.regions.push(StructuredRegion {
-                kind: StructuredRegionKind::Unstructured, header: edge.from, join: None,
-                members: vec![edge.from, branch_target], confidence: Confidence::Heuristic,
+                kind: StructuredRegionKind::Unstructured,
+                header: edge.from,
+                join: None,
+                members: vec![edge.from, branch_target],
+                confidence: Confidence::Heuristic,
                 evidence: "Conditional branch has no recovered fallthrough edge".into(),
             });
             continue;
@@ -318,13 +388,23 @@ fn reconstruct_control_flow(cfg: &ControlFlowGraph) -> ControlFlowReconstruction
         let branch_reach = reachable(branch_target, &successors);
         let fall_reach = reachable(fallthrough, &successors);
         let join = branch_reach.intersection(&fall_reach).copied().min_by_key(|candidate| {
-            indices.get(candidate).map_or(usize::MAX, |&index| usize::MAX - dom[index].iter().map(|word| word.count_ones() as usize).sum::<usize>())
+            indices.get(candidate).map_or(usize::MAX, |&index| {
+                usize::MAX - dom[index].iter().map(|word| word.count_ones() as usize).sum::<usize>()
+            })
         });
-        let kind = if join.is_some() { StructuredRegionKind::IfElse } else { StructuredRegionKind::If };
+        let kind = if join.is_some() {
+            StructuredRegionKind::IfElse
+        } else {
+            StructuredRegionKind::If
+        };
         let mut members = branch_reach.union(&fall_reach).copied().collect::<Vec<_>>();
         members.sort_unstable();
         result.regions.push(StructuredRegion {
-            kind, header: edge.from, join, members, confidence: Confidence::Heuristic,
+            kind,
+            header: edge.from,
+            join,
+            members,
+            confidence: Confidence::Heuristic,
             evidence: "Conditional branch with two reachable paths; join is an approximation".into(),
         });
     }
@@ -332,8 +412,11 @@ fn reconstruct_control_flow(cfg: &ControlFlowGraph) -> ControlFlowReconstruction
     for (source, targets) in &successors {
         if targets.len() >= 3 {
             result.regions.push(StructuredRegion {
-                kind: StructuredRegionKind::SwitchCandidate, header: *source, join: None,
-                members: targets.iter().copied().collect(), confidence: Confidence::Heuristic,
+                kind: StructuredRegionKind::SwitchCandidate,
+                header: *source,
+                join: None,
+                members: targets.iter().copied().collect(),
+                confidence: Confidence::Heuristic,
                 evidence: format!("Dispatch block has {} outgoing targets", targets.len()),
             });
         }
@@ -347,14 +430,23 @@ fn irreducible_components(
     predecessors: &BTreeMap<u64, BTreeSet<u64>>,
 ) -> Vec<Vec<u64>> {
     fn finish(node: u64, successors: &BTreeMap<u64, BTreeSet<u64>>, seen: &mut BTreeSet<u64>, order: &mut Vec<u64>) {
-        if !seen.insert(node) { return; }
+        if !seen.insert(node) {
+            return;
+        }
         for next in successors.get(&node).into_iter().flatten() {
             finish(*next, successors, seen, order);
         }
         order.push(node);
     }
-    fn collect(node: u64, predecessors: &BTreeMap<u64, BTreeSet<u64>>, seen: &mut BTreeSet<u64>, component: &mut Vec<u64>) {
-        if !seen.insert(node) { return; }
+    fn collect(
+        node: u64,
+        predecessors: &BTreeMap<u64, BTreeSet<u64>>,
+        seen: &mut BTreeSet<u64>,
+        component: &mut Vec<u64>,
+    ) {
+        if !seen.insert(node) {
+            return;
+        }
         component.push(node);
         for next in predecessors.get(&node).into_iter().flatten() {
             collect(*next, predecessors, seen, component);
@@ -362,19 +454,32 @@ fn irreducible_components(
     }
     let mut seen = BTreeSet::new();
     let mut order = Vec::new();
-    for node in nodes { finish(*node, successors, &mut seen, &mut order); }
+    for node in nodes {
+        finish(*node, successors, &mut seen, &mut order);
+    }
     seen.clear();
     let mut irreducible = Vec::new();
     for node in order.into_iter().rev() {
-        if seen.contains(&node) { continue; }
+        if seen.contains(&node) {
+            continue;
+        }
         let mut component = Vec::new();
         collect(node, predecessors, &mut seen, &mut component);
         let cyclic = component.len() > 1 || successors.get(&node).is_some_and(|set| set.contains(&node));
-        if !cyclic { continue; }
+        if !cyclic {
+            continue;
+        }
         let members: BTreeSet<u64> = component.iter().copied().collect();
-        let entry_count = component.iter().filter(|target| {
-            predecessors.get(target).into_iter().flatten().any(|pred| !members.contains(pred))
-        }).count();
+        let entry_count = component
+            .iter()
+            .filter(|target| {
+                predecessors
+                    .get(target)
+                    .into_iter()
+                    .flatten()
+                    .any(|pred| !members.contains(pred))
+            })
+            .count();
         if entry_count > 1 {
             component.sort_unstable();
             irreducible.push(component);
@@ -384,15 +489,25 @@ fn irreducible_components(
 }
 
 fn add_jump_table_candidates(result: &mut ControlFlowReconstruction, pcode: &[InstructionPcode]) {
-    let flat: Vec<_> = pcode.iter().flat_map(|instruction| {
-        instruction.operations.iter().map(move |operation| (instruction.address, operation.opcode))
-    }).collect();
+    let flat: Vec<_> = pcode
+        .iter()
+        .flat_map(|instruction| {
+            instruction
+                .operations
+                .iter()
+                .map(move |operation| (instruction.address, operation.opcode))
+        })
+        .collect();
     for (index, (address, opcode)) in flat.iter().enumerate() {
-        if *opcode != OpCode::Branchind { continue; }
+        if *opcode != OpCode::Branchind {
+            continue;
+        }
         let start = index.saturating_sub(12);
         let window = &flat[start..index];
         let has_table_load = window.iter().any(|(_, op)| *op == OpCode::Load);
-        let has_index_math = window.iter().any(|(_, op)| matches!(op, OpCode::IntMult | OpCode::Ptradd | OpCode::IntLeft | OpCode::IntAdd));
+        let has_index_math = window
+            .iter()
+            .any(|(_, op)| matches!(op, OpCode::IntMult | OpCode::Ptradd | OpCode::IntLeft | OpCode::IntAdd));
         if has_table_load && has_index_math {
             result.regions.push(StructuredRegion {
                 kind: StructuredRegionKind::SwitchCandidate,
@@ -411,7 +526,9 @@ fn natural_loop_members(header: u64, tail: u64, predecessors: &BTreeMap<u64, BTr
     let mut work = vec![tail];
     while let Some(node) = work.pop() {
         for pred in predecessors.get(&node).into_iter().flatten() {
-            if members.insert(*pred) && *pred != header { work.push(*pred); }
+            if members.insert(*pred) && *pred != header {
+                work.push(*pred);
+            }
         }
     }
     members.into_iter().collect()
@@ -421,8 +538,12 @@ fn reachable(start: u64, successors: &BTreeMap<u64, BTreeSet<u64>>) -> BTreeSet<
     let mut seen = BTreeSet::new();
     let mut queue = VecDeque::from([start]);
     while let Some(node) = queue.pop_front() {
-        if !seen.insert(node) { continue; }
-        for next in successors.get(&node).into_iter().flatten() { queue.push_back(*next); }
+        if !seen.insert(node) {
+            continue;
+        }
+        for next in successors.get(&node).into_iter().flatten() {
+            queue.push_back(*next);
+        }
     }
     seen
 }
@@ -430,30 +551,44 @@ fn reachable(start: u64, successors: &BTreeMap<u64, BTreeSet<u64>>) -> BTreeSet<
 fn reconstruct_lifetimes(pcode: &[InstructionPcode], cfg: Option<&ControlFlowGraph>) -> Vec<VariableLifetime> {
     #[derive(Default)]
     struct Facts {
-        first_def: Option<MicrocodeLocation>, last_def: Option<MicrocodeLocation>,
-        first_use: Option<MicrocodeLocation>, last_use: Option<MicrocodeLocation>,
-        defs: usize, uses: usize, first: usize, last: usize,
+        first_def: Option<MicrocodeLocation>,
+        last_def: Option<MicrocodeLocation>,
+        first_use: Option<MicrocodeLocation>,
+        last_use: Option<MicrocodeLocation>,
+        defs: usize,
+        uses: usize,
+        first: usize,
+        last: usize,
     }
     let mut facts = BTreeMap::<VarnodeIdentity, Facts>::new();
     let mut ordinal = 0usize;
     for (instruction_index, instruction) in pcode.iter().enumerate() {
         for (operation_index, operation) in instruction.operations.iter().enumerate() {
             let location = MicrocodeLocation {
-                instruction_address: instruction.address, instruction_index, operation_index, ordinal,
+                instruction_address: instruction.address,
+                instruction_index,
+                operation_index,
+                ordinal,
             };
             ordinal += 1;
             if let Some(output) = &operation.output {
                 let fact = facts.entry(VarnodeIdentity::from(output)).or_default();
-                if fact.defs + fact.uses == 0 { fact.first = location.ordinal; }
+                if fact.defs + fact.uses == 0 {
+                    fact.first = location.ordinal;
+                }
                 fact.first_def.get_or_insert(location);
                 fact.last_def = Some(location);
                 fact.defs += 1;
                 fact.last = location.ordinal;
             }
             for input in &operation.inputs {
-                if input.space == "const" { continue; }
+                if input.space == "const" {
+                    continue;
+                }
                 let fact = facts.entry(VarnodeIdentity::from(input)).or_default();
-                if fact.defs + fact.uses == 0 { fact.first = location.ordinal; }
+                if fact.defs + fact.uses == 0 {
+                    fact.first = location.ordinal;
+                }
                 fact.first_use.get_or_insert(location);
                 fact.last_use = Some(location);
                 fact.uses += 1;
@@ -462,18 +597,27 @@ fn reconstruct_lifetimes(pcode: &[InstructionPcode], cfg: Option<&ControlFlowGra
         }
     }
     let boundaries: BTreeSet<u64> = cfg.into_iter().flat_map(|g| g.blocks.iter().map(|b| b.start)).collect();
-    let mut values: Vec<_> = facts.into_iter().map(|(variable, f)| {
-        let first = f.first_def.or(f.first_use);
-        let last = f.last_use.or(f.last_def);
-        let first_addr = first.map(|x| x.instruction_address).unwrap_or(0);
-        let last_addr = last.map(|x| x.instruction_address).unwrap_or(0);
-        let crosses = first_addr < last_addr && boundaries.range((first_addr + 1)..=last_addr).next().is_some();
-        VariableLifetime {
-            variable, first_definition: f.first_def, last_definition: f.last_def,
-            first_use: f.first_use, last_use: f.last_use, definition_count: f.defs, use_count: f.uses,
-            live_range: Some((f.first, f.last)), crosses_basic_block_boundary: crosses,
-        }
-    }).collect();
+    let mut values: Vec<_> = facts
+        .into_iter()
+        .map(|(variable, f)| {
+            let first = f.first_def.or(f.first_use);
+            let last = f.last_use.or(f.last_def);
+            let first_addr = first.map(|x| x.instruction_address).unwrap_or(0);
+            let last_addr = last.map(|x| x.instruction_address).unwrap_or(0);
+            let crosses = first_addr < last_addr && boundaries.range((first_addr + 1)..=last_addr).next().is_some();
+            VariableLifetime {
+                variable,
+                first_definition: f.first_def,
+                last_definition: f.last_def,
+                first_use: f.first_use,
+                last_use: f.last_use,
+                definition_count: f.defs,
+                use_count: f.uses,
+                live_range: Some((f.first, f.last)),
+                crosses_basic_block_boundary: crosses,
+            }
+        })
+        .collect();
     values.sort_by_key(|v| v.live_range.map(|r| r.0).unwrap_or(usize::MAX));
     values
 }
@@ -486,24 +630,45 @@ fn reconstruct_signature(function: &FunctionEntry, pcode: &[InstructionPcode]) -
     for (instruction_index, instruction) in pcode.iter().enumerate() {
         for (operation_index, operation) in instruction.operations.iter().enumerate() {
             let location = MicrocodeLocation {
-                instruction_address: instruction.address, instruction_index, operation_index, ordinal,
+                instruction_address: instruction.address,
+                instruction_index,
+                operation_index,
+                ordinal,
             };
             ordinal += 1;
             for input in &operation.inputs {
-                if input.space == "const" || !matches!(input.space.as_str(), "register" | "stack") { continue; }
+                if input.space == "const" || !matches!(input.space.as_str(), "register" | "stack") {
+                    continue;
+                }
                 let id = VarnodeIdentity::from(input);
-                if !defined.contains(&id) { incoming.entry(id).or_insert(location); }
+                if !defined.contains(&id) {
+                    incoming.entry(id).or_insert(location);
+                }
             }
-            if operation.opcode == OpCode::Return { return_ops += 1; }
-            if let Some(output) = &operation.output { defined.insert(VarnodeIdentity::from(output)); }
+            if operation.opcode == OpCode::Return {
+                return_ops += 1;
+            }
+            if let Some(output) = &operation.output {
+                defined.insert(VarnodeIdentity::from(output));
+            }
         }
     }
     let mut ordered: Vec<_> = incoming.into_iter().collect();
     ordered.sort_by_key(|(_, location)| location.ordinal);
-    let parameters = ordered.into_iter().enumerate().map(|(ordinal, (storage, first_read))| ParameterEvidence {
-        ordinal, size_bytes: storage.size, storage, first_read, confidence: Confidence::Heuristic,
-        evidence: "Register or stack storage is read before a definition; ABI argument assignment is not yet proven".into(),
-    }).collect();
+    let parameters = ordered
+        .into_iter()
+        .enumerate()
+        .map(|(ordinal, (storage, first_read))| ParameterEvidence {
+            ordinal,
+            size_bytes: storage.size,
+            storage,
+            first_read,
+            confidence: Confidence::Heuristic,
+            evidence:
+                "Register or stack storage is read before a definition; ABI argument assignment is not yet proven"
+                    .into(),
+        })
+        .collect();
     ReconstructedSignature {
         function_address: function.address, function_name: function.name.clone(), parameters,
         return_value: ReturnEvidence {
@@ -525,93 +690,223 @@ fn reconstruct_expressions(pcode: &[InstructionPcode]) -> ExpressionReconstructi
             let mut complexity = 1usize;
             for input in &operation.inputs {
                 if input.space == "const" {
-                    operands.push(ExpressionOperand::Constant { value: input.offset, size_bytes: input.size });
+                    operands.push(ExpressionOperand::Constant {
+                        value: input.offset,
+                        size_bytes: input.size,
+                    });
                 } else {
                     let identity = VarnodeIdentity::from(input);
                     if let Some(node) = latest.get(&identity).copied() {
                         used.insert(node);
                         complexity = complexity.saturating_add(nodes[node].complexity);
                         operands.push(ExpressionOperand::Expression { node });
-                    } else { operands.push(ExpressionOperand::Variable(identity)); }
+                    } else {
+                        operands.push(ExpressionOperand::Variable(identity));
+                    }
                 }
             }
             let id = nodes.len();
             let side_effecting = is_side_effecting(operation);
             nodes.push(ExpressionNode {
-                id, address: instruction.address, opcode: get_opname(operation.opcode).to_string(),
-                output: operation.output.as_ref().map(VarnodeIdentity::from), operands, complexity, side_effecting,
+                id,
+                address: instruction.address,
+                opcode: get_opname(operation.opcode).to_string(),
+                output: operation.output.as_ref().map(VarnodeIdentity::from),
+                operands,
+                complexity,
+                side_effecting,
             });
             maximum_complexity = maximum_complexity.max(complexity);
-            if let Some(output) = &operation.output { latest.insert(VarnodeIdentity::from(output), id); }
+            if let Some(output) = &operation.output {
+                latest.insert(VarnodeIdentity::from(output), id);
+            }
         }
     }
-    let roots = nodes.iter().filter(|n| !used.contains(&n.id) || n.side_effecting).map(|n| n.id).collect();
-    ExpressionReconstruction { nodes, roots, maximum_complexity }
+    let roots = nodes
+        .iter()
+        .filter(|n| !used.contains(&n.id) || n.side_effecting)
+        .map(|n| n.id)
+        .collect();
+    ExpressionReconstruction {
+        nodes,
+        roots,
+        maximum_complexity,
+    }
 }
 
 fn is_side_effecting(operation: &PcodeOperation) -> bool {
-    matches!(operation.opcode, OpCode::Load | OpCode::Store | OpCode::Call | OpCode::Callind |
-        OpCode::Callother | OpCode::Branch | OpCode::Cbranch | OpCode::Branchind | OpCode::Return)
+    matches!(
+        operation.opcode,
+        OpCode::Load
+            | OpCode::Store
+            | OpCode::Call
+            | OpCode::Callind
+            | OpCode::Callother
+            | OpCode::Branch
+            | OpCode::Cbranch
+            | OpCode::Branchind
+            | OpCode::Return
+    )
 }
 
 fn detect_compiler_patterns(instructions: &[Instruction], pcode: &[InstructionPcode]) -> Vec<CompilerPattern> {
     let mut found = Vec::new();
     let first_addr = instructions.first().map(|i| i.address).unwrap_or(0);
     let last_addr = instructions.last().map(|i| i.address).unwrap_or(first_addr);
-    let text: Vec<String> = instructions.iter().map(|i| format!("{} {}", i.mnemonic, i.operands).to_ascii_lowercase()).collect();
+    let text: Vec<String> = instructions
+        .iter()
+        .map(|i| format!("{} {}", i.mnemonic, i.operands).to_ascii_lowercase())
+        .collect();
     let joined = text.join("\n");
     if text.iter().take(8).any(|s| s.contains("push") && s.contains("rbp"))
-        && text.iter().take(8).any(|s| s.contains("mov") && s.contains("rbp") && s.contains("rsp")) {
-        found.push(pattern(CompilerPatternKind::StackFrameSetup, first_addr, "x86 frame-pointer save and establishment sequence"));
+        && text
+            .iter()
+            .take(8)
+            .any(|s| s.contains("mov") && s.contains("rbp") && s.contains("rsp"))
+    {
+        found.push(pattern(
+            CompilerPatternKind::StackFrameSetup,
+            first_addr,
+            "x86 frame-pointer save and establishment sequence",
+        ));
     }
-    if text.iter().take(8).any(|s| s.contains("stp") && s.contains("x29") && s.contains("x30"))
-        && text.iter().take(8).any(|s| (s.contains("mov") || s.contains("add")) && s.contains("x29") && s.contains("sp")) {
-        found.push(pattern(CompilerPatternKind::StackFrameSetup, first_addr, "AArch64 frame/link-register save and frame-pointer setup"));
+    if text
+        .iter()
+        .take(8)
+        .any(|s| s.contains("stp") && s.contains("x29") && s.contains("x30"))
+        && text
+            .iter()
+            .take(8)
+            .any(|s| (s.contains("mov") || s.contains("add")) && s.contains("x29") && s.contains("sp"))
+    {
+        found.push(pattern(
+            CompilerPatternKind::StackFrameSetup,
+            first_addr,
+            "AArch64 frame/link-register save and frame-pointer setup",
+        ));
     }
-    if text.iter().rev().take(8).any(|s| s.contains("leave") || (s.contains("mov") && s.contains("rsp") && s.contains("rbp")))
-        || text.iter().rev().take(8).any(|s| s.contains("ldp") && s.contains("x29") && s.contains("x30")) {
-        found.push(pattern(CompilerPatternKind::StackFrameTeardown, last_addr, "Frame restoration sequence near function exit"));
+    if text
+        .iter()
+        .rev()
+        .take(8)
+        .any(|s| s.contains("leave") || (s.contains("mov") && s.contains("rsp") && s.contains("rbp")))
+        || text
+            .iter()
+            .rev()
+            .take(8)
+            .any(|s| s.contains("ldp") && s.contains("x29") && s.contains("x30"))
+    {
+        found.push(pattern(
+            CompilerPatternKind::StackFrameTeardown,
+            last_addr,
+            "Frame restoration sequence near function exit",
+        ));
     }
     if joined.contains("__stack_chk_fail") || joined.contains("__security_check_cookie") {
-        found.push(pattern(CompilerPatternKind::StackCanary, first_addr, "Known stack-protector helper reference"));
+        found.push(pattern(
+            CompilerPatternKind::StackCanary,
+            first_addr,
+            "Known stack-protector helper reference",
+        ));
     }
-    if text.iter().any(|s| s.contains("@got") || s.contains("adrp") || s.contains("rip")) {
-        found.push(pattern(CompilerPatternKind::PositionIndependentAddressing, first_addr, "PC-relative or global-offset-table addressing syntax"));
+    if text
+        .iter()
+        .any(|s| s.contains("@got") || s.contains("adrp") || s.contains("rip"))
+    {
+        found.push(pattern(
+            CompilerPatternKind::PositionIndependentAddressing,
+            first_addr,
+            "PC-relative or global-offset-table addressing syntax",
+        ));
     }
     if instructions.last().is_some_and(|i| {
         let m = i.mnemonic.to_ascii_lowercase();
         m.starts_with("jmp") || m == "b" || m == "br" || m == "jr"
     }) {
-        found.push(pattern(CompilerPatternKind::TailCall, last_addr, "Terminal unconditional transfer; target must be validated as a tail call"));
+        found.push(pattern(
+            CompilerPatternKind::TailCall,
+            last_addr,
+            "Terminal unconditional transfer; target must be validated as a tail call",
+        ));
     }
     if instructions.len() <= 5 && text.iter().any(|s| s.starts_with("jmp") || s.starts_with("b ")) {
-        found.push(pattern(CompilerPatternKind::FunctionThunk, first_addr, "Small forwarding-function candidate"));
+        found.push(pattern(
+            CompilerPatternKind::FunctionThunk,
+            first_addr,
+            "Small forwarding-function candidate",
+        ));
     }
-    let ops: Vec<OpCode> = pcode.iter().flat_map(|i| i.operations.iter().map(|o| o.opcode)).collect();
-    if ops.windows(3).any(|w| w[0] == OpCode::IntMult && w[1] == OpCode::IntAdd) {
-        found.push(pattern(CompilerPatternKind::MultiplyAccumulate, first_addr, "Multiply followed by addition in P-code"));
+    let ops: Vec<OpCode> = pcode
+        .iter()
+        .flat_map(|i| i.operations.iter().map(|o| o.opcode))
+        .collect();
+    if ops
+        .windows(3)
+        .any(|w| w[0] == OpCode::IntMult && w[1] == OpCode::IntAdd)
+    {
+        found.push(pattern(
+            CompilerPatternKind::MultiplyAccumulate,
+            first_addr,
+            "Multiply followed by addition in P-code",
+        ));
     }
-    if ops.windows(2).any(|w| matches!(w[0], OpCode::IntLess | OpCode::IntLessequal | OpCode::IntSless | OpCode::IntSlessequal) && w[1] == OpCode::IntZext) {
-        found.push(pattern(CompilerPatternKind::CompareAndSelect, first_addr, "Comparison result widened into an integer value"));
+    if ops.windows(2).any(|w| {
+        matches!(
+            w[0],
+            OpCode::IntLess | OpCode::IntLessequal | OpCode::IntSless | OpCode::IntSlessequal
+        ) && w[1] == OpCode::IntZext
+    }) {
+        found.push(pattern(
+            CompilerPatternKind::CompareAndSelect,
+            first_addr,
+            "Comparison result widened into an integer value",
+        ));
     }
     if ops.contains(&OpCode::Branchind) {
         let has_load = ops.contains(&OpCode::Load);
-        let has_index = ops.iter().any(|op| matches!(op, OpCode::IntMult | OpCode::Ptradd | OpCode::IntLeft | OpCode::IntAdd));
+        let has_index = ops
+            .iter()
+            .any(|op| matches!(op, OpCode::IntMult | OpCode::Ptradd | OpCode::IntLeft | OpCode::IntAdd));
         if has_load && has_index {
-            found.push(pattern(CompilerPatternKind::JumpTableDispatch, first_addr, "Indirect branch with table load and index arithmetic"));
+            found.push(pattern(
+                CompilerPatternKind::JumpTableDispatch,
+                first_addr,
+                "Indirect branch with table load and index arithmetic",
+            ));
         }
     }
-    if ops.iter().any(|op| matches!(op, OpCode::IntAnd | OpCode::IntOr | OpCode::IntXor)) {
-        found.push(pattern(CompilerPatternKind::BitMasking, first_addr, "Bitwise operations may encode masks, flags, or packed fields"));
+    if ops
+        .iter()
+        .any(|op| matches!(op, OpCode::IntAnd | OpCode::IntOr | OpCode::IntXor))
+    {
+        found.push(pattern(
+            CompilerPatternKind::BitMasking,
+            first_addr,
+            "Bitwise operations may encode masks, flags, or packed fields",
+        ));
     }
-    if ops.iter().filter(|op| matches!(op, OpCode::FloatAdd | OpCode::FloatMult | OpCode::FloatDiv)).count() >= 4 {
-        found.push(pattern(CompilerPatternKind::LoopVectorizationCandidate, first_addr, "Dense floating-point sequence; vectorization is only a candidate"));
+    if ops
+        .iter()
+        .filter(|op| matches!(op, OpCode::FloatAdd | OpCode::FloatMult | OpCode::FloatDiv))
+        .count()
+        >= 4
+    {
+        found.push(pattern(
+            CompilerPatternKind::LoopVectorizationCandidate,
+            first_addr,
+            "Dense floating-point sequence; vectorization is only a candidate",
+        ));
     }
     found
 }
 
 fn pattern(kind: CompilerPatternKind, address: u64, evidence: &str) -> CompilerPattern {
-    CompilerPattern { kind, address, confidence: Confidence::Heuristic, evidence: evidence.into() }
+    CompilerPattern {
+        kind,
+        address,
+        confidence: Confidence::Heuristic,
+        evidence: evidence.into(),
+    }
 }
 
 #[cfg(test)]
@@ -621,7 +916,13 @@ mod tests {
     use crate::program::Instruction;
 
     fn instruction(address: u64) -> Instruction {
-        Instruction { address, length: 4, bytes: vec![0; 4], mnemonic: "nop".into(), operands: String::new() }
+        Instruction {
+            address,
+            length: 4,
+            bytes: vec![0; 4],
+            mnemonic: "nop".into(),
+            operands: String::new(),
+        }
     }
 
     #[test]
@@ -629,13 +930,36 @@ mod tests {
         let cfg = ControlFlowGraph {
             function: 0x1000,
             blocks: vec![
-                BasicBlock { start: 0x1000, end: 0x1004, instructions: vec![instruction(0x1000)] },
-                BasicBlock { start: 0x1004, end: 0x1008, instructions: vec![instruction(0x1004)] },
+                BasicBlock {
+                    start: 0x1000,
+                    end: 0x1004,
+                    instructions: vec![instruction(0x1000)],
+                },
+                BasicBlock {
+                    start: 0x1004,
+                    end: 0x1008,
+                    instructions: vec![instruction(0x1004)],
+                },
             ],
             edges: vec![
-                FlowEdge { from: 0x1000, to: Some(0x1004), kind: FlowKind::ConditionalBranch, confidence: Confidence::Heuristic },
-                FlowEdge { from: 0x1000, to: Some(0x1004), kind: FlowKind::Fallthrough, confidence: Confidence::Confirmed },
-                FlowEdge { from: 0x1004, to: Some(0x1000), kind: FlowKind::Branch, confidence: Confidence::Heuristic },
+                FlowEdge {
+                    from: 0x1000,
+                    to: Some(0x1004),
+                    kind: FlowKind::ConditionalBranch,
+                    confidence: Confidence::Heuristic,
+                },
+                FlowEdge {
+                    from: 0x1000,
+                    to: Some(0x1004),
+                    kind: FlowKind::Fallthrough,
+                    confidence: Confidence::Confirmed,
+                },
+                FlowEdge {
+                    from: 0x1004,
+                    to: Some(0x1000),
+                    kind: FlowKind::Branch,
+                    confidence: Confidence::Heuristic,
+                },
             ],
         };
         assert!(reconstruct_control_flow(&cfg).loop_headers.contains(&0x1000));
@@ -643,6 +967,9 @@ mod tests {
 
     #[test]
     fn heuristic_patterns_are_explicitly_marked() {
-        assert_eq!(pattern(CompilerPatternKind::TailCall, 0x4000, "branch").confidence, Confidence::Heuristic);
+        assert_eq!(
+            pattern(CompilerPatternKind::TailCall, 0x4000, "branch").confidence,
+            Confidence::Heuristic
+        );
     }
 }
