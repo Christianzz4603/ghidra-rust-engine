@@ -161,12 +161,20 @@ impl AnalysisEngine {
 
         // Function discovery has already happened, and FLIRT may have renamed
         // functions. Avoid repeating discovery while building the base report.
+        let collect_call_graph = options.build_call_graph;
         let mut base_options = options.clone();
         base_options.discover_functions = false;
-        let base = self.analyze(&base_options, |_| {})?;
+        // Intelligence builds the call graph below. Do not run the same
+        // whole-program flow analysis twice.
+        base_options.build_call_graph = false;
+        let mut base = self.analyze(&base_options, |_| {})?;
 
         let intelligence = BinaryIntelligence::new(&mut self.program).analyze_all()?;
-        let reconstructions = DecompilerReconstructor.reconstruct_all(&mut self.program)?;
+        if collect_call_graph {
+            base.call_edges = intelligence.call_edges.clone();
+        }
+        let reconstructions = DecompilerReconstructor
+            .reconstruct_all_with_intelligence(&mut self.program, &intelligence)?;
 
         Ok(FullAnalysisReport { base, flirt: flirt_report, intelligence, reconstructions })
     }

@@ -144,11 +144,18 @@ impl DecompilerReconstructor {
     pub fn reconstruct_function(&self, program: &mut Program, address: u64) -> Result<FunctionReconstruction> {
         let function = program.functions()?.into_iter().find(|f| f.address == address)
             .ok_or_else(|| crate::Error::Lowlevel(format!("no function found at {address:#x}")))?;
+        let cfg = BinaryIntelligence::new(program).analyze_one(address)?
+            .control_flow_graphs.into_iter().next();
+        self.reconstruct_with_context(program, function, cfg)
+    }
 
-        let cfg = {
-            let mut intelligence = BinaryIntelligence::new(program);
-            intelligence.analyze_one(address)?.control_flow_graphs.into_iter().next()
-        };
+    fn reconstruct_with_context(
+        &self,
+        program: &mut Program,
+        function: FunctionEntry,
+        cfg: Option<ControlFlowGraph>,
+    ) -> Result<FunctionReconstruction> {
+        let address = function.address;
         let size = program.function_size(address)?;
         let instructions = if size == 0 { Vec::new() } else { program.disassemble_range(address, size)? };
         let pseudocode = program.decompile(address)?;
@@ -184,20 +191,39 @@ impl DecompilerReconstructor {
     }
 
     pub fn reconstruct_all(&self, program: &mut Program) -> Result<Vec<std::result::Result<FunctionReconstruction, FunctionAnalysisFailure>>> {
+        let intelligence = BinaryIntelligence::new(program).analyze_all()?;
+        self.reconstruct_all_with_intelligence(program, &intelligence)
+    }
+
+    pub(crate) fn reconstruct_all_with_intelligence(
+        &self,
+        program: &mut Program,
+        intelligence: &crate::intelligence::IntelligenceReport,
+    ) -> Result<Vec<std::result::Result<FunctionReconstruction, FunctionAnalysisFailure>>> {
         let mut entries = program.functions()?;
         entries.sort_by_key(|entry| entry.address);
+        let mut cfg_by_address = BTreeMap::new();
+        for cfg in &intelligence.control_flow_graphs {
+            cfg_by_address.insert(cfg.function, cfg.clone());
+        }
         let mut output = Vec::with_capacity(entries.len());
         for entry in entries {
-            match self.reconstruct_function(program, entry.address) {
+            let address = entry.address;
+            let name = entry.name.clone();
+            let cfg = cfg_by_address.remove(&address);
+            match self.reconstruct_with_context(program, entry, cfg) {
                 Ok(value) => output.push(Ok(value)),
                 Err(error) => output.push(Err(FunctionAnalysisFailure {
-                    address: entry.address, name: entry.name,
-                    stage: "high-level reconstruction".into(), message: error.to_string(),
+                    address,
+                    name,
+                    stage: "high-level reconstruction".into(),
+                    message: error.to_string(),
                 })),
             }
         }
         Ok(output)
     }
+
 }
 
 fn extract_declaration(pseudocode: &str) -> Option<String> {
