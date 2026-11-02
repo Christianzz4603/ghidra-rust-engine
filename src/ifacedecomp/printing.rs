@@ -960,7 +960,6 @@ pub fn ifc_analyze_all(args: &mut IStream, status: &mut IfaceStatus) -> IfaceRes
     let mut processed = 0usize;
     let mut skipped = 0usize;
     let mut assembly_ok = 0usize;
-    let mut decompile_ok = 0usize;
     let mut size_failures = 0usize;
     let mut assembly_failures = 0usize;
     let mut decompile_failures = 0usize;
@@ -1052,7 +1051,6 @@ pub fn ifc_analyze_all(args: &mut IStream, status: &mut IfaceStatus) -> IfaceRes
                     .and_then(|_| c_file.write_all(text.as_bytes()))
                     .map_err(|err| IfaceError::Execution(err.to_string()))?;
                 processed += 1;
-                decompile_ok += 1;
                 function_decompile_ok = true;
             }
             Err(err) => {

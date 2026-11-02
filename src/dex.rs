@@ -342,6 +342,7 @@ impl DexFile {
         Ok(out)
     }
 }
+#[cfg(test)]
 fn smali_type(descriptor: &str) -> String {
     let dimensions = descriptor.bytes().take_while(|byte| *byte == b'[').count();
     let base = &descriptor[dimensions..];
