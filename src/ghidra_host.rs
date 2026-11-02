@@ -38,12 +38,22 @@ pub struct MemoryBlock {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ParameterDescriptor {
+    pub ordinal: u32,
+    pub name: String,
+    pub type_name: String,
+    pub storage: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FunctionDescriptor {
     pub entry: u64,
     pub name: String,
     pub body_size: u64,
     pub calling_convention: Option<String>,
     pub return_type: Option<String>,
+    pub namespace: Option<String>,
+    pub parameters: Vec<ParameterDescriptor>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -275,12 +285,25 @@ fn parse_snapshot(value: &Value) -> Result<ProgramSnapshot, String> {
     let raw_functions = optional_array(value, "functions", MAX_FUNCTIONS)?;
     let mut functions = Vec::with_capacity(raw_functions.len());
     for raw in raw_functions {
+        let raw_parameters = optional_array(raw, "parameters", 1024)?;
+        let mut parameters = Vec::with_capacity(raw_parameters.len());
+        for (index, parameter) in raw_parameters.iter().enumerate() {
+            let ordinal = match parameter.get("ordinal") { None | Some(Value::Null) => index as u32, Some(value) => value.as_u64().and_then(|number| u32::try_from(number).ok()).ok_or("parameter ordinal must fit u32")? };
+            parameters.push(ParameterDescriptor {
+                ordinal,
+                name: bounded_string(parameter, "name", MAX_IDENTIFIER_BYTES)?,
+                type_name: bounded_string(parameter, "type_name", MAX_IDENTIFIER_BYTES)?,
+                storage: optional_string(parameter, "storage", MAX_IDENTIFIER_BYTES)?,
+            });
+        }
         functions.push(FunctionDescriptor {
             entry: required_u64(raw, "entry")?,
             name: bounded_string(raw, "name", MAX_IDENTIFIER_BYTES)?,
             body_size: required_u64(raw, "body_size")?,
             calling_convention: optional_string(raw, "calling_convention", MAX_IDENTIFIER_BYTES)?,
             return_type: optional_string(raw, "return_type", MAX_IDENTIFIER_BYTES)?,
+            namespace: optional_string(raw, "namespace", MAX_IDENTIFIER_BYTES)?,
+            parameters,
         });
     }
     functions.sort_unstable_by_key(|function| function.entry);

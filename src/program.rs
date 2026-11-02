@@ -41,6 +41,7 @@ pub struct Program {
     references: BTreeMap<u64, Vec<ProgramReference>>,
     relocations: BTreeMap<u64, ProgramRelocation>,
     imported_types: BTreeMap<String, ImportedDataType>,
+    function_signatures: BTreeMap<u64, ImportedFunctionSignature>,
     string_sections: Vec<std::ops::Range<u64>>,
     code_sections: Vec<std::ops::Range<u64>>,
     entry: Option<u64>,
@@ -203,6 +204,22 @@ pub struct ProgramRelocation {
     pub kind: String,
     pub symbol: Option<String>,
     pub addend: i64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ImportedParameter {
+    pub ordinal: u32,
+    pub name: String,
+    pub type_name: String,
+    pub storage: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ImportedFunctionSignature {
+    pub entry: u64,
+    pub calling_convention: Option<String>,
+    pub return_type: Option<String>,
+    pub parameters: Vec<ImportedParameter>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -391,6 +408,7 @@ impl Program {
             references: BTreeMap::new(),
             relocations: BTreeMap::new(),
             imported_types: BTreeMap::new(),
+            function_signatures: BTreeMap::new(),
             string_sections: Vec::new(),
             code_sections: Vec::new(),
             entry: None,
@@ -690,6 +708,21 @@ impl Program {
         result.dedup_by_key(|entry| entry.address);
         Ok(result)
     }
+
+    /// Store the prototype recovered by Ghidra's Function/Parameter database.
+    pub fn import_function_signature(&mut self, entry: u64, calling_convention: Option<&str>, return_type: Option<&str>, parameters: Vec<ImportedParameter>) -> Result<()> {
+        if parameters.len() > 1024 { return Err(Error::Lowlevel("function prototype exceeds parameter limit".to_string())); }
+        for value in calling_convention.iter().chain(return_type.iter()) {
+            if value.len() > 1024 || value.contains('\0') { return Err(Error::Lowlevel("invalid function prototype metadata".to_string())); }
+        }
+        if parameters.iter().any(|parameter| parameter.name.len() > 1024 || parameter.type_name.len() > 1024 || parameter.name.contains('\0') || parameter.type_name.contains('\0')) {
+            return Err(Error::Lowlevel("invalid imported parameter metadata".to_string()));
+        }
+        self.function_signatures.insert(entry, ImportedFunctionSignature { entry, calling_convention: calling_convention.map(str::to_string), return_type: return_type.map(str::to_string), parameters });
+        Ok(())
+    }
+
+    pub fn function_signature(&self, entry: u64) -> Option<&ImportedFunctionSignature> { self.function_signatures.get(&entry) }
 
     /// Add an external program-database cross-reference to the native Program model.
     pub fn import_reference(&mut self, from: u64, to: u64, kind: &str, is_primary: bool) -> Result<bool> {

@@ -131,9 +131,16 @@ impl GhidraWorker {
             if block.executable { report.executable_blocks_loaded += 1; }
 
             for function in snapshot.functions.iter().filter(|item| item.entry >= block.start && item.entry < end) {
-                match program.ensure_function_at(function.entry, Some(&function.name)) {
+                let qualified_name = function.namespace.as_ref().map(|namespace| format!("{namespace}::{}", function.name)).unwrap_or_else(|| function.name.clone());
+                match program.ensure_function_at(function.entry, Some(&qualified_name)) {
                     Ok(_) => report.functions_applied += 1,
-                    Err(error) => failures.push(format!("function {} at {:#x}: {error}", function.name, function.entry)),
+                    Err(error) => failures.push(format!("function {} at {:#x}: {error}", qualified_name, function.entry)),
+                }
+                let parameters = function.parameters.iter().map(|parameter| crate::ImportedParameter {
+                    ordinal: parameter.ordinal, name: parameter.name.clone(), type_name: parameter.type_name.clone(), storage: parameter.storage.clone(),
+                }).collect();
+                if let Err(error) = program.import_function_signature(function.entry, function.calling_convention.as_deref(), function.return_type.as_deref(), parameters) {
+                    failures.push(format!("function prototype at {:#x}: {error}", function.entry));
                 }
             }
             for symbol in snapshot.symbols.iter().filter(|item| item.address >= block.start && item.address < end) {
