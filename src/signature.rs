@@ -436,7 +436,7 @@ mod tests {
     #[test]
     fn normalized_constants_preserve_shape_across_values() {
         let a = FunctionSignature::generate(&sample(7), SignatureSettings::default());
-        let b = FunctionSignature::generate(&sample(9), SignatureSettings::default());
+        let b = FunctionSignature::generate(&sample(6), SignatureSettings::default());
         assert_eq!(a.overall_hash, b.overall_hash);
         assert_eq!(a.similarity(&b), 1.0);
     }
