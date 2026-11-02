@@ -61,3 +61,10 @@ process and decode structured results.
 This repository does not copy those adapters wholesale. The script bridge is an initial
 integration point, not full Ghidra host parity. The versioned host protocol and adapter
 subsystems remain implementation work.
+
+
+## Persistent Rust worker (protocol v1)
+
+Build the worker with `cargo build --release --bin ghidra-rust-worker`. Start it as a child process and exchange one JSON object per line over stdin/stdout. The worker supports `ping`, `open_program`, `decompile`, and `shutdown`; malformed requests receive a structured error response. It retains the current program snapshot and lazily initializes/reuses one Rust `Program` per executable memory block. A `decompile` request resolves the function descriptor, registers the function entry, and calls the repository's `PseudocodeDecompiler`.
+
+The current worker decompiles initialized executable memory blocks through the raw-binary architecture path. It does not yet apply Ghidra symbols, relocations, overlays, compiler-spec overrides, data types, register context, external references or injected p-code to the Rust database. Those fields are accepted and validated by the transport, but only the function names/entries and executable bytes currently influence decompilation. Requests are processed serially, so `cancel` reports that concurrent cancellation is not available.
