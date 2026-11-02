@@ -5,6 +5,7 @@
 //! remains a machine-readable transport.
 
 use std::io::{self, BufReader, BufWriter};
+use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::Arc;
 
 use serde_json::json;
@@ -245,7 +246,7 @@ impl GhidraWorker {
             }
             for symbol in items_in_range(&snapshot.symbols, block_start, end, |item| item.address) {
                 let is_function = matches!(symbol.kind.to_ascii_lowercase().as_str(), "function" | "func" | "code")
-                    || snapshot.functions.iter().any(|function| function.entry == symbol.address);
+                    || snapshot.functions.binary_search_by_key(&symbol.address, |function| function.entry).is_ok();
                 if is_function {
                     let qualified_name = snapshot.functions.binary_search_by_key(&symbol.address, |function| function.entry).ok().map(|index| &snapshot.functions[index])
                         .map(|function| function.namespace.as_ref().map(|namespace| format!("{namespace}::{}", function.name)).unwrap_or_else(|| function.name.clone()))
@@ -373,7 +374,18 @@ pub fn run_stdio() -> Result<(), String> {
     let mut worker = GhidraWorker::default();
     while let Some(frame) = read_frame(&mut input)? {
         let response = match HostRequest::parse_frame(&frame) {
-            Ok(request) => worker.handle(request),
+            Ok(request) => {
+                let request_id = request.request_id.clone();
+                match catch_unwind(AssertUnwindSafe(|| worker.handle(request))) {
+                    Ok(response) => response,
+                    Err(_) => {
+                        // A panic must not take down the host's worker process.
+                        // Reset potentially inconsistent state before accepting another request.
+                        worker = GhidraWorker::default();
+                        HostResponse::failure(request_id, "internal worker error; session state was reset, please reopen the program")
+                    }
+                }
+            }
             Err(error) => HostResponse::failure("", error),
         };
         write_frame(&mut output, &response)?;
