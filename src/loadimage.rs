@@ -1,4 +1,7 @@
+use std::io::Read;
 use std::sync::Arc;
+
+pub(crate) const MAX_LOAD_IMAGE_BYTES: u64 = 512 * 1024 * 1024;
 
 use crate::address::{Address, RangeList};
 use crate::error::{Error, Result};
@@ -100,16 +103,17 @@ impl RawLoadImage {
         if self.content.is_some() {
             return Err(Error::Lowlevel("loadimage is already open".to_string()));
         }
-        match std::fs::read(&self.filename) {
-            Ok(bytes) => {
-                self.content = Some(Arc::new(bytes));
-                Ok(())
-            }
-            Err(_) => Err(Error::Lowlevel(format!(
-                "Unable to open raw image file: {}",
-                self.filename
-            ))),
+        let file = std::fs::File::open(&self.filename)
+            .map_err(|_| Error::Lowlevel(format!("Unable to open raw image file: {}", self.filename)))?;
+        let mut bytes = Vec::new();
+        file.take(MAX_LOAD_IMAGE_BYTES + 1)
+            .read_to_end(&mut bytes)
+            .map_err(|_| Error::Lowlevel(format!("Unable to read raw image file: {}", self.filename)))?;
+        if bytes.len() as u64 > MAX_LOAD_IMAGE_BYTES {
+            return Err(Error::Lowlevel(format!("Raw image exceeds the {} byte safety limit", MAX_LOAD_IMAGE_BYTES)));
         }
+        self.content = Some(Arc::new(bytes));
+        Ok(())
     }
 }
 

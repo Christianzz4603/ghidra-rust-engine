@@ -10,7 +10,7 @@ use crate::architecture::{ATTRIB_ADJUSTVMA, Architecture, ArchitectureCapability
 use crate::capability::CapabilityPoint;
 use crate::error::{Error, Result};
 use crate::istream::{Basefield, read_i64};
-use crate::loadimage::{LoadImage, LoadImageFunc, LoadImageSection, SharedLoadImage};
+use crate::loadimage::{LoadImage, LoadImageFunc, LoadImageSection, MAX_LOAD_IMAGE_BYTES, SharedLoadImage};
 use crate::marshal::{ElementId, Encoder};
 use crate::sleigh_arch::{
     AdjustableLoadImage, LoaderSlot, SleighArchitecture, SleighArchitectureHooks, SleighCapability,
@@ -495,9 +495,16 @@ impl ObjectLoadImage {
         if self.read_state().parsed.is_some() {
             return Err(Error::Lowlevel("BFD library did not initialize".to_string()));
         }
-        let bytes = Arc::new(std::fs::read(&self.filename)
-            .map_err(|_| Error::Lowlevel(format!("Unable to open image file: {}", self.filename)))?);
-        self.open_bytes(bytes)
+        let file = std::fs::File::open(&self.filename)
+            .map_err(|_| Error::Lowlevel(format!("Unable to open image file: {}", self.filename)))?;
+        let mut bytes = Vec::new();
+        file.take(MAX_LOAD_IMAGE_BYTES + 1)
+            .read_to_end(&mut bytes)
+            .map_err(|_| Error::Lowlevel(format!("Unable to read image file: {}", self.filename)))?;
+        if bytes.len() as u64 > MAX_LOAD_IMAGE_BYTES {
+            return Err(Error::Lowlevel(format!("Image exceeds the {} byte safety limit", MAX_LOAD_IMAGE_BYTES)));
+        }
+        self.open_bytes(Arc::new(bytes))
     }
 
     fn open_bytes(&self, bytes: Arc<Vec<u8>>) -> Result<()> {
