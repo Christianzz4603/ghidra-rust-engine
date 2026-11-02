@@ -266,3 +266,16 @@ pub fn run(port: u16) -> std::io::Result<()> {
     }
     Ok(())
 }
+
+/// Launch the local web interface. Pass an optional port as the first argument.
+fn main() {
+    let port = std::env::args()
+        .nth(1)
+        .and_then(|value| value.parse::<u16>().ok())
+        .unwrap_or(8080);
+
+    if let Err(error) = run(port) {
+        eprintln!("failed to start web UI on 127.0.0.1:{port}: {error}");
+        std::process::exit(1);
+    }
+}
