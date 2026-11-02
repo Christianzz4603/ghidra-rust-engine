@@ -16,7 +16,7 @@ that every function or whole-program pass is safe to run in one UI operation.
 - ARM64 prologue discovery and reachable-function discovery have hard candidate
   and function-count ceilings.
 - The Ghidra worker uses `PseudocodeOptions::resource_bounded()`, limiting a
-  batch to 5,000 functions and one returned function's text to 256 KiB.
+  batch to 1,000 functions by default and returned function text to 128 KiB.
 
 ## Host application recommendations
 
