@@ -189,7 +189,7 @@ fn handle(mut stream: TcpStream, state: SharedProgram) -> std::io::Result<()> {
                                 return json_response(
                                     &mut stream,
                                     "500 Internal Server Error",
-                                    error_json(&error.explain()),
+                                    error_json(error.explain()),
                                 );
                             }
                         };
@@ -212,9 +212,9 @@ fn handle(mut stream: TcpStream, state: SharedProgram) -> std::io::Result<()> {
                             format!("{{\"name\":\"{}\",\"functions\":[{entries}]}}", json_escape(name)),
                         )
                     }
-                    Err(error) => json_response(&mut stream, "500 Internal Server Error", error_json(&error.explain())),
+                    Err(error) => json_response(&mut stream, "500 Internal Server Error", error_json(error.explain())),
                 },
-                Err(error) => json_response(&mut stream, "400 Bad Request", error_json(&error.explain())),
+                Err(error) => json_response(&mut stream, "400 Bad Request", error_json(error.explain())),
             }
         }
         ("GET", "/api/decompile") => match parse_address(query) {
@@ -228,7 +228,7 @@ fn handle(mut stream: TcpStream, state: SharedProgram) -> std::io::Result<()> {
                             format!("{{\"code\":\"{}\"}}", json_escape(&code)),
                         ),
                         Err(error) => {
-                            json_response(&mut stream, "422 Unprocessable Entity", error_json(&error.explain()))
+                            json_response(&mut stream, "422 Unprocessable Entity", error_json(error.explain()))
                         }
                     },
                     None => json_response(&mut stream, "409 Conflict", error_json("No binary loaded")),
@@ -250,7 +250,7 @@ fn handle(mut stream: TcpStream, state: SharedProgram) -> std::io::Result<()> {
                             json_response(&mut stream, "200 OK", format!("{{\"instructions\":[{rows}]}}"))
                         }
                         Err(error) => {
-                            json_response(&mut stream, "422 Unprocessable Entity", error_json(&error.explain()))
+                            json_response(&mut stream, "422 Unprocessable Entity", error_json(error.explain()))
                         }
                     },
                     None => json_response(&mut stream, "409 Conflict", error_json("No binary loaded")),
@@ -291,7 +291,7 @@ fn handle(mut stream: TcpStream, state: SharedProgram) -> std::io::Result<()> {
                             )
                         }
                         Err(error) => {
-                            json_response(&mut stream, "422 Unprocessable Entity", error_json(&error.explain()))
+                            json_response(&mut stream, "422 Unprocessable Entity", error_json(error.explain()))
                         }
                     },
                     None => json_response(&mut stream, "409 Conflict", error_json("No binary loaded")),

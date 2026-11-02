@@ -60,13 +60,12 @@ fn fetch_latest_tag() -> Option<String> {
 
     if let Ok(contents) = fs::read_to_string(&cache) {
         let mut lines = contents.lines();
-        if let (Some(timestamp), Some(tag)) = (lines.next(), lines.next()) {
-            if timestamp
+        if let (Some(timestamp), Some(tag)) = (lines.next(), lines.next())
+            && timestamp
                 .parse::<u64>()
                 .is_ok_and(|time| now.saturating_sub(time) < 21_600)
-            {
-                return Some(tag.to_string());
-            }
+        {
+            return Some(tag.to_string());
         }
     }
 

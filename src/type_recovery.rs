@@ -88,10 +88,9 @@ impl TypeRecoveryAnalyzer {
                                 | OpCode::FloatLess
                                 | OpCode::FloatLessequal
                                 | OpCode::FloatNan
-                        ) {
-                            if let Some(out) = &operation.output {
-                                mark(out, Boolean);
-                            }
+                        ) && let Some(out) = &operation.output
+                        {
+                            mark(out, Boolean);
                         }
                     }
                     OpCode::FloatInt2float => {

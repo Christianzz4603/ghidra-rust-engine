@@ -143,10 +143,8 @@ impl Program {
                         let following = u32::from_le_bytes(bytes[start..start + 4].try_into().unwrap());
                         following & STP_FP_LR_PREINDEX_MASK == STP_FP_LR_PREINDEX
                     });
-                    if has_frame_setup {
-                        if candidates.len() < MAX_ARM64_PROLOGUE_CANDIDATES {
-                            candidates.push(chunk_start + offset as u64);
-                        }
+                    if has_frame_setup && candidates.len() < MAX_ARM64_PROLOGUE_CANDIDATES {
+                        candidates.push(chunk_start + offset as u64);
                     }
                 }
                 chunk_start = (chunk_start + CHUNK_SIZE) & !3;
