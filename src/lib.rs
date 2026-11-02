@@ -11,6 +11,7 @@
 )]
 
 pub mod action;
+pub mod abi;
 pub mod address;
 pub mod analysis;
 pub mod architecture;
@@ -92,6 +93,7 @@ pub mod rangeutil;
 pub mod raw_arch;
 pub mod ruleaction;
 pub mod semantics;
+pub mod ssa;
 pub mod slaformat;
 pub mod sleigh;
 pub mod sleigh_arch;
@@ -121,6 +123,8 @@ pub use analysis::{
     AnalysisEngine, AnalysisEvent, AnalysisOptions, AnalysisReport, AnalysisSelection, FullAnalysisReport, FunctionAnalysis,
 };
 pub use error::{Error, Result};
+pub use abi::{Abi, AbiArgumentAllocator, AbiLocation, AbiProfile, AbiValueClass};
+pub use ssa::{SsaAnalyzer, SsaBlock, SsaDefinition, SsaOperation, SsaPhi, SsaReport, SsaUse, SsaVersion};
 pub use intelligence::{
     BasicBlock, BinaryIntelligence, Confidence, ControlFlowGraph, CrossReference, DataFlowSummary, FlowEdge, FlowKind,
     FunctionFingerprint, FunctionPrototype, FunctionAnalysisFailure, IntelligenceReport, ReferenceKind, SimilarFunction, TypeEvidence,
