@@ -331,6 +331,7 @@ pub fn run(port: u16) -> std::io::Result<()> {
 }
 
 /// Launch the local web interface. Pass an optional port as the first argument.
+#[allow(dead_code)]
 fn main() {
     let port = std::env::args()
         .nth(1)
