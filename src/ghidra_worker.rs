@@ -93,6 +93,15 @@ impl Default for GhidraWorker {
     }
 }
 
+fn items_in_range<'a, T, F>(items: &'a [T], start: u64, end: u64, address: F) -> &'a [T]
+where
+    F: Fn(&T) -> u64,
+{
+    let first = items.partition_point(|item| address(item) < start);
+    let last = items.partition_point(|item| address(item) < end);
+    &items[first..last]
+}
+
 impl GhidraWorker {
     pub fn is_shutdown(&self) -> bool { self.shutdown }
 
@@ -195,6 +204,12 @@ impl GhidraWorker {
         let mut loaded_blocks = Vec::with_capacity(snapshot.memory_blocks.len());
         let mut report = HydrationCounters::default();
         let mut failures = Vec::new();
+        snapshot.functions.sort_unstable_by_key(|item| item.entry);
+        snapshot.symbols.sort_unstable_by_key(|item| item.address);
+        snapshot.comments.sort_unstable_by_key(|item| item.address);
+        snapshot.references.sort_unstable_by_key(|item| item.from);
+        snapshot.relocations.sort_unstable_by_key(|item| item.address);
+        snapshot.context_values.sort_unstable_by_key(|item| item.address);
         let had_executable_memory = snapshot.memory_blocks.iter().any(|block| block.executable && !block.bytes.is_empty());
         let memory_blocks = std::mem::take(&mut snapshot.memory_blocks);
         for block in memory_blocks {
@@ -214,7 +229,7 @@ impl GhidraWorker {
             report.memory_blocks_loaded += 1;
             if block_executable { report.executable_blocks_loaded += 1; }
 
-            for function in snapshot.functions.iter().filter(|item| item.entry >= block_start && item.entry < end) {
+            for function in items_in_range(&snapshot.functions, block_start, end, |item| item.entry) {
                 let qualified_name = function.namespace.as_ref().map(|namespace| format!("{namespace}::{}", function.name)).unwrap_or_else(|| function.name.clone());
                 match program.ensure_function_at(function.entry, Some(&qualified_name)) {
                     Ok(_) => report.functions_applied += 1,
@@ -228,11 +243,11 @@ impl GhidraWorker {
                     Err(error) => failures.push(format!("function prototype at {:#x}: {error}", function.entry)),
                 }
             }
-            for symbol in snapshot.symbols.iter().filter(|item| item.address >= block_start && item.address < end) {
+            for symbol in items_in_range(&snapshot.symbols, block_start, end, |item| item.address) {
                 let is_function = matches!(symbol.kind.to_ascii_lowercase().as_str(), "function" | "func" | "code")
                     || snapshot.functions.iter().any(|function| function.entry == symbol.address);
                 if is_function {
-                    let qualified_name = snapshot.functions.iter().find(|function| function.entry == symbol.address)
+                    let qualified_name = snapshot.functions.binary_search_by_key(&symbol.address, |function| function.entry).ok().map(|index| &snapshot.functions[index])
                         .map(|function| function.namespace.as_ref().map(|namespace| format!("{namespace}::{}", function.name)).unwrap_or_else(|| function.name.clone()))
                         .unwrap_or_else(|| symbol.name.clone());
                     match program.ensure_function_at(symbol.address, Some(&qualified_name)) {
@@ -248,20 +263,20 @@ impl GhidraWorker {
                     }
                 }
             }
-            for comment in snapshot.comments.iter().filter(|item| item.address >= block_start && item.address < end) {
+            for comment in items_in_range(&snapshot.comments, block_start, end, |item| item.address) {
                 let function_entry = comment.function_entry.unwrap_or(comment.address);
                 match program.import_comment(function_entry, comment.address, &comment.kind, &comment.text) {
                     Ok(inserted) => { if inserted { report.comments_applied += 1; } else { report.duplicate_comments += 1; } },
                     Err(error) => failures.push(format!("comment at {:#x}: {error}", comment.address)),
                 }
             }
-            for reference in snapshot.references.iter().filter(|item| item.from >= block_start && item.from < end) {
+            for reference in items_in_range(&snapshot.references, block_start, end, |item| item.from) {
                 match program.import_reference(reference.from, reference.to, &reference.kind, reference.is_primary) {
                     Ok(inserted) => { if inserted { report.references_applied += 1; } },
                     Err(error) => failures.push(format!("reference {:#x}->{:#x}: {error}", reference.from, reference.to)),
                 }
             }
-            for relocation in snapshot.relocations.iter().filter(|item| item.address >= block_start && item.address < end) {
+            for relocation in items_in_range(&snapshot.relocations, block_start, end, |item| item.address) {
                 match program.import_relocation(relocation.address, &relocation.kind, relocation.symbol.as_deref(), relocation.addend) {
                     Ok(()) => report.relocations_recorded += 1,
                     Err(error) => failures.push(format!("relocation at {:#x}: {error}", relocation.address)),
@@ -273,7 +288,7 @@ impl GhidraWorker {
                     Err(error) => failures.push(format!("datatype {}: {error}", data_type.name)),
                 }
             }
-            for context in snapshot.context_values.iter().filter(|item| item.address >= block_start && item.address < end) {
+            for context in items_in_range(&snapshot.context_values, block_start, end, |item| item.address) {
                 match program.import_context_value(context.address, &context.register, context.value) {
                     Ok(()) => report.context_values_applied += 1,
                     Err(error) => failures.push(format!("context {} at {:#x}: {error}", context.register, context.address)),
