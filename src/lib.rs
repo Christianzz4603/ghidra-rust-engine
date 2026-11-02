@@ -94,8 +94,7 @@ pub mod rangeutil;
 pub mod raw_arch;
 pub mod ruleaction;
 pub mod semantics;
-pub mod ssa;
-pub mod slaformat;
+pub mod signature;
 pub mod sleigh;
 pub mod sleigh_arch;
 pub mod sleighbase;
@@ -103,6 +102,7 @@ pub mod slghpatexpress;
 pub mod slghpattern;
 pub mod slghsymbol;
 pub mod space;
+pub mod ssa;
 pub mod stdsort;
 pub mod stringmanage;
 pub mod subflow;
@@ -136,6 +136,7 @@ pub use type_recovery::{RecoveredTypeKind, RecoveredVariableType, TypeConstraint
 pub use pseudocode::{DecompileBatch, DecompileFailure, FunctionPseudocode, PseudocodeDecompiler, PseudocodeLine, PseudocodeOptions};
 pub use flirt::{FlirtAnalyzer, FlirtMatch, FlirtOptions, FlirtReport};
 pub use lumina::LuminaClient;
+pub use signature::{FunctionSignature, SignatureFeature, SignatureKind, SignatureSettings};
 pub use program::{
     CallEdge, CodeScanSummary, CodeSectionSummary, DataEntry, DisassemblyGap, DisassemblyReport, FunctionEntry,
     FunctionSource, Instruction, InstructionPcode, PcodeOperation, PcodeVarnode, Program, StringEntry, SymbolLoading,
