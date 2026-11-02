@@ -41,6 +41,7 @@ pub struct Program {
     references: BTreeMap<u64, Vec<ProgramReference>>,
     relocations: BTreeMap<u64, ProgramRelocation>,
     imported_types: BTreeMap<String, ImportedDataType>,
+    data_symbol_types: BTreeMap<u64, String>,
     function_signatures: BTreeMap<u64, ImportedFunctionSignature>,
     string_sections: Vec<std::ops::Range<u64>>,
     code_sections: Vec<std::ops::Range<u64>>,
@@ -408,6 +409,7 @@ impl Program {
             references: BTreeMap::new(),
             relocations: BTreeMap::new(),
             imported_types: BTreeMap::new(),
+            data_symbol_types: BTreeMap::new(),
             function_signatures: BTreeMap::new(),
             string_sections: Vec::new(),
             code_sections: Vec::new(),
@@ -777,6 +779,18 @@ impl Program {
         if self.data.contains_key(&address) { self.set_data_name(address, name)?; return Ok(()); }
         self.add_typed_data_symbol(name, None, address, size)
     }
+
+    /// Import a data symbol and bind its Ghidra datatype name in Program metadata.
+    pub fn import_typed_data_symbol(&mut self, address: u64, name: &str, size: u64, type_name: Option<&str>) -> Result<()> {
+        self.import_data_symbol(address, name, size)?;
+        if let Some(type_name) = type_name {
+            if type_name.is_empty() || type_name.len() > 1024 || type_name.contains('\0') { return Err(Error::Lowlevel("invalid data symbol datatype name".to_string())); }
+            self.data_symbol_types.insert(address, type_name.to_string());
+        }
+        Ok(())
+    }
+
+    pub fn data_symbol_type(&self, address: u64) -> Option<&str> { self.data_symbol_types.get(&address).map(String::as_str) }
 
     /// Import a code-unit comment into the native decompiler comment database.
     pub fn import_comment(&mut self, function_entry: u64, address: u64, kind: &str, text: &str) -> Result<bool> {
