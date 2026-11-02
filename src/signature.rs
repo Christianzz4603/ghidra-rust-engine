@@ -238,7 +238,7 @@ impl FunctionSignature {
     /// Encode a compact, versioned binary signature. No platform-dependent fields
     /// or Rust type layouts are written to the stream.
     pub fn encode(&self) -> Vec<u8> {
-        let mut output = Vec::with_capacity(20 + self.features.len() * FEATURE_RECORD_SIZE);
+        let mut output = Vec::with_capacity(28 + self.features.len() * FEATURE_RECORD_SIZE);
         output.extend_from_slice(MAGIC);
         output.extend_from_slice(&self.format_version.to_le_bytes());
         let flags = u8::from(self.settings.normalize_constants)
@@ -247,6 +247,7 @@ impl FunctionSignature {
         output.push(flags);
         output.push(0);
         output.extend_from_slice(&(self.features.len() as u32).to_le_bytes());
+        output.extend_from_slice(&(self.settings.max_features as u64).to_le_bytes());
         output.extend_from_slice(&self.overall_hash.to_le_bytes());
         for feature in &self.features {
             output.push(feature.kind as u8);
@@ -260,7 +261,7 @@ impl FunctionSignature {
     /// Decode a signature while validating version, flags, feature count and
     /// exact payload length before allocating the feature vector.
     pub fn decode(bytes: &[u8]) -> std::result::Result<Self, String> {
-        if bytes.len() < 20 || &bytes[..4] != MAGIC {
+        if bytes.len() < 28 || &bytes[..4] != MAGIC {
             return Err("invalid or truncated GHSG signature header".into());
         }
         let version = u16::from_le_bytes([bytes[4], bytes[5]]);
@@ -275,15 +276,17 @@ impl FunctionSignature {
         if count > MAX_DECODED_FEATURES {
             return Err(format!("signature feature count {count} exceeds safety limit"));
         }
-        let expected = 20usize
+        let expected = 28usize
             .checked_add(count.checked_mul(FEATURE_RECORD_SIZE).ok_or("signature size overflow")?)
             .ok_or("signature size overflow")?;
         if bytes.len() != expected {
             return Err(format!("signature payload length mismatch: expected {expected}, got {}", bytes.len()));
         }
-        let stored_hash = u64::from_le_bytes(bytes[12..20].try_into().unwrap());
+        let max_features_u64 = u64::from_le_bytes(bytes[12..20].try_into().unwrap());
+        let max_features = usize::try_from(max_features_u64).map_err(|_| "signature feature limit does not fit this platform")?;
+        let stored_hash = u64::from_le_bytes(bytes[20..28].try_into().unwrap());
         let mut features = Vec::with_capacity(count);
-        let mut cursor = 20;
+        let mut cursor = 28;
         for _ in 0..count {
             let kind = SignatureKind::try_from(bytes[cursor])?;
             if bytes[cursor + 1] != 0 {
@@ -299,7 +302,7 @@ impl FunctionSignature {
             normalize_constants: flags & 1 != 0,
             include_calls: flags & 2 != 0,
             include_dataflow: flags & 4 != 0,
-            max_features: MAX_DECODED_FEATURES,
+            max_features,
         };
         let computed_hash = overall_hash(&features, settings);
         if computed_hash != stored_hash {
@@ -350,9 +353,9 @@ fn bit_width_class(value: u64) -> u64 {
 fn overall_hash(features: &[SignatureFeature], settings: SignatureSettings) -> u64 {
     let mut hash = StableHash::new();
     hash.bytes(b"ghidra-rust-signature-v1");
-    hash.u64(u64::from(settings.normalize_constants));
-    hash.u64(u64::from(settings.include_calls));
-    hash.u64(u64::from(settings.include_dataflow));
+    hash.u64(settings.normalize_constants as u64);
+    hash.u64(settings.include_calls as u64);
+    hash.u64(settings.include_dataflow as u64);
     for feature in features {
         hash.u64(u64::from(feature.kind as u8));
         hash.u64(u64::from(feature.hash));
