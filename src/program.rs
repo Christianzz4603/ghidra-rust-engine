@@ -31,6 +31,9 @@ const MAX_INPUT_IMAGE_BYTES: u64 = 512 * 1024 * 1024;
 const MAX_PCODE_CACHE_BYTES: usize = 16 * 1024 * 1024;
 const MAX_PCODE_RANGE_BYTES: u64 = 4 * 1024 * 1024;
 const MAX_PCODE_INSTRUCTIONS: usize = 250_000;
+const MAX_PCODE_OPERATIONS_PER_INSTRUCTION: usize = 4_096;
+const MAX_PCODE_VARNODES_PER_OPERATION: usize = 1_024;
+const MAX_INSTRUCTION_BYTES: i32 = 64;
 const MAX_DISASSEMBLY_BYTES: u64 = 4 * 1024 * 1024;
 const MAX_DECOMPILE_FUNCTION_BYTES: u64 = 1024 * 1024;
 
@@ -300,6 +303,12 @@ fn pcode_varnode(data: &VarnodeData) -> PcodeVarnode {
 
 impl PcodeEmit for OperationCollector<'_> {
     fn dump(&mut self, _addr: &Address, opc: OpCode, outvar: Option<&VarnodeData>, vars: &[VarnodeData]) -> Result<()> {
+        if self.operations.len() >= MAX_PCODE_OPERATIONS_PER_INSTRUCTION {
+            return Err(Error::Lowlevel(format!("instruction exceeds the P-code operation limit of {MAX_PCODE_OPERATIONS_PER_INSTRUCTION}")));
+        }
+        if vars.len() > MAX_PCODE_VARNODES_PER_OPERATION {
+            return Err(Error::Lowlevel(format!("P-code operation exceeds the varnode limit of {MAX_PCODE_VARNODES_PER_OPERATION}")));
+        }
         let space = match (opc, vars.first()) {
             (OpCode::Load | OpCode::Store, Some(space_operand)) => self
                 .manager
@@ -1096,6 +1105,9 @@ impl Program {
                 operands: String::new(),
             };
             let length = translate.print_assembly(&mut text, &current)?;
+            if length <= 0 || length > MAX_INSTRUCTION_BYTES {
+                return Err(Error::Lowlevel(format!("invalid instruction length {length} at {:#x}", current.get_offset())));
+            }
             let mut bytes = vec![0u8; length as usize];
             if let Some(loader) = &self.architecture.loader {
                 loader.load_fill(&mut bytes, &current)?;
@@ -1155,7 +1167,7 @@ impl Program {
                     .ok()
                     .filter(|length| *length > 0)
                     .map(|length| length as u64)
-                    .filter(|length| *length <= remaining);
+                    .filter(|length| *length <= remaining && *length <= MAX_INSTRUCTION_BYTES as u64);
 
                 if let Some(length) = length {
                     if let Some(start) = gap_start.take() {
@@ -1309,9 +1321,9 @@ impl Program {
                     operands: String::new(),
                 };
                 let length = translate.print_assembly(&mut text, &current)?;
-                if length <= 0 {
+                if length <= 0 || length > MAX_INSTRUCTION_BYTES {
                     return Err(Error::Lowlevel(format!(
-                        "invalid instruction length at {:#x}",
+                        "invalid instruction length {length} at {:#x}",
                         current.get_offset()
                     )));
                 }
@@ -1429,6 +1441,9 @@ impl Program {
                 operations: Vec::new(),
             };
             let length = translate.one_instruction(&mut collector, &current)?;
+            if length <= 0 || length > MAX_INSTRUCTION_BYTES {
+                return Err(Error::Lowlevel(format!("invalid instruction length {length} at {:#x}", current.get_offset())));
+            }
             instructions.push(InstructionPcode {
                 address: current.get_offset(),
                 length: length as usize,
