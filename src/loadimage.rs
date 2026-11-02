@@ -161,3 +161,17 @@ impl LoadImage for RawLoadImage {
         self.vma = self.vma.wrapping_add(adjust as u64);
     }
 }
+
+
+#[cfg(test)]
+mod shared_image_tests {
+    use super::*;
+
+    #[test]
+    fn shared_image_keeps_the_original_allocation() {
+        let bytes = Arc::new(vec![0x7f, b'E', b'L', b'F']);
+        let image = RawLoadImage::from_shared_bytes("shared-test", Arc::clone(&bytes));
+        let stored = image.content.as_ref().expect("image bytes should be present");
+        assert!(Arc::ptr_eq(stored, &bytes));
+    }
+}

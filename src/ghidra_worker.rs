@@ -400,6 +400,13 @@ mod tests {
     use crate::ghidra_host::HOST_PROTOCOL_VERSION;
 
     #[test]
+    fn metadata_range_lookup_skips_unrelated_entries() {
+        let values = [(0x1000u64, "a"), (0x2000, "b"), (0x3000, "c"), (0x4000, "d")];
+        let selected = items_in_range(&values, 0x2000, 0x4000, |item| item.0);
+        assert_eq!(selected.iter().map(|item| item.1).collect::<Vec<_>>(), vec!["b", "c"]);
+    }
+
+    #[test]
     fn ping_reports_worker_protocol_and_version() {
         let request = HostRequest {
             protocol_version: HOST_PROTOCOL_VERSION,
