@@ -4,7 +4,7 @@
 //! source-level variable boundaries and type information, so uncertain results
 //! remain heuristic instead of being presented as recovered source truth.
 
-use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
 
 use crate::error::Result;
 use crate::intelligence::{BinaryIntelligence, Confidence, ControlFlowGraph, FlowKind, FunctionAnalysisFailure};
@@ -210,45 +210,64 @@ fn reconstruct_control_flow(cfg: &ControlFlowGraph) -> ControlFlowReconstruction
     let nodes: Vec<u64> = cfg.blocks.iter().map(|b| b.start).collect();
     let Some(&entry) = nodes.first() else { return ControlFlowReconstruction::default() };
     let node_set: BTreeSet<u64> = nodes.iter().copied().collect();
+    let indices: HashMap<u64, usize> = nodes.iter().enumerate().map(|(i, node)| (*node, i)).collect();
     let mut predecessors = BTreeMap::<u64, BTreeSet<u64>>::new();
     let mut successors = BTreeMap::<u64, BTreeSet<u64>>::new();
+    let mut predecessor_indices = vec![Vec::<usize>::new(); nodes.len()];
+    let mut fallthroughs = HashMap::<u64, u64>::new();
     for edge in &cfg.edges {
+        if edge.kind == FlowKind::Fallthrough {
+            if let Some(to) = edge.to { fallthroughs.entry(edge.from).or_insert(to); }
+        }
         if let Some(to) = edge.to.filter(|to| node_set.contains(to)) {
             successors.entry(edge.from).or_default().insert(to);
             predecessors.entry(to).or_default().insert(edge.from);
+            if let (Some(&from_index), Some(&to_index)) = (indices.get(&edge.from), indices.get(&to)) {
+                predecessor_indices[to_index].push(from_index);
+            }
         }
     }
-    let mut dominators = BTreeMap::<u64, BTreeSet<u64>>::new();
-    for node in &nodes {
-        dominators.insert(*node, if *node == entry { BTreeSet::from([entry]) } else { node_set.clone() });
+
+    // Dense bitsets avoid allocating and intersecting a BTreeSet for every
+    // predecessor on every fixed-point iteration. Complexity is word-parallel.
+    let words = (nodes.len() + 63) / 64;
+    let mut all = vec![u64::MAX; words];
+    if nodes.len() % 64 != 0 {
+        if let Some(last) = all.last_mut() { *last = (1u64 << (nodes.len() % 64)) - 1; }
     }
+    let mut dom = vec![all.clone(); nodes.len()];
+    dom[0].fill(0);
+    dom[0][0] = 1;
     let mut changed = true;
     while changed {
         changed = false;
-        for node in nodes.iter().copied().filter(|node| *node != entry) {
-            let preds = predecessors.get(&node).cloned().unwrap_or_default();
-            let mut next = if let Some(first) = preds.iter().next() {
-                dominators.get(first).cloned().unwrap_or_default()
-            } else { BTreeSet::new() };
-            for pred in preds.iter().skip(1) {
-                let other = dominators.get(pred).cloned().unwrap_or_default();
-                next = next.intersection(&other).copied().collect();
+        for node_index in 1..nodes.len() {
+            let preds = &predecessor_indices[node_index];
+            let mut next = if let Some(&first) = preds.first() { dom[first].clone() } else { vec![0; words] };
+            for &pred in preds.iter().skip(1) {
+                for (word, other) in next.iter_mut().zip(&dom[pred]) { *word &= *other; }
             }
-            next.insert(node);
-            if dominators.get(&node) != Some(&next) {
-                dominators.insert(node, next);
-                changed = true;
-            }
+            next[node_index / 64] |= 1u64 << (node_index % 64);
+            if next != dom[node_index] { dom[node_index] = next; changed = true; }
         }
+    }
+    let mut dominators = BTreeMap::<u64, BTreeSet<u64>>::new();
+    for (node_index, node) in nodes.iter().enumerate() {
+        let set = nodes.iter().enumerate().filter_map(|(candidate, address)| {
+            (dom[node_index][candidate / 64] & (1u64 << (candidate % 64)) != 0).then_some(*address)
+        }).collect();
+        dominators.insert(*node, set);
     }
     let mut result = ControlFlowReconstruction {
         block_count: cfg.blocks.len(), edge_count: cfg.edges.len(),
-        dominators: dominators.iter().map(|(k,v)| (*k, v.iter().copied().collect())).collect(),
+        dominators: dominators.iter().map(|(k, v)| (*k, v.iter().copied().collect())).collect(),
         ..Default::default()
     };
     for edge in &cfg.edges {
         let Some(target) = edge.to else { continue };
-        if dominators.get(&edge.from).is_some_and(|set| set.contains(&target)) {
+        if indices.get(&edge.from).zip(indices.get(&target)).is_some_and(|(&from, &to)| {
+            dom[from][to / 64] & (1u64 << (to % 64)) != 0
+        }) {
             result.loop_headers.push(target);
             result.regions.push(StructuredRegion {
                 kind: StructuredRegionKind::Loop, header: target, join: Some(target),
@@ -262,7 +281,7 @@ fn reconstruct_control_flow(cfg: &ControlFlowGraph) -> ControlFlowReconstruction
     result.loop_headers.dedup();
     for edge in cfg.edges.iter().filter(|e| e.kind == FlowKind::ConditionalBranch) {
         let Some(branch_target) = edge.to else { continue };
-        let Some(fallthrough) = cfg.edges.iter().find(|e| e.from == edge.from && e.kind == FlowKind::Fallthrough).and_then(|e| e.to) else {
+        let Some(&fallthrough) = fallthroughs.get(&edge.from) else {
             result.regions.push(StructuredRegion {
                 kind: StructuredRegionKind::Unstructured, header: edge.from, join: None,
                 members: vec![edge.from, branch_target], confidence: Confidence::Heuristic,
@@ -273,7 +292,7 @@ fn reconstruct_control_flow(cfg: &ControlFlowGraph) -> ControlFlowReconstruction
         let branch_reach = reachable(branch_target, &successors);
         let fall_reach = reachable(fallthrough, &successors);
         let join = branch_reach.intersection(&fall_reach).copied().min_by_key(|candidate| {
-            dominators.get(candidate).map_or(usize::MAX, |set| usize::MAX - set.len())
+            indices.get(candidate).map_or(usize::MAX, |&index| usize::MAX - dom[index].iter().map(|word| word.count_ones() as usize).sum::<usize>())
         });
         let kind = if join.is_some() { StructuredRegionKind::IfElse } else { StructuredRegionKind::If };
         let mut members = branch_reach.union(&fall_reach).copied().collect::<Vec<_>>();
