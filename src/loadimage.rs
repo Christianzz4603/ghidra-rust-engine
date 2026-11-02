@@ -65,7 +65,7 @@ pub type SharedLoadImage = Arc<dyn LoadImage>;
 pub struct RawLoadImage {
     filename: String,
     vma: u64,
-    content: Option<Vec<u8>>,
+    content: Option<Arc<Vec<u8>>>,
     spaceid: Option<SpaceRef>,
 }
 
@@ -80,6 +80,10 @@ impl RawLoadImage {
     }
 
     pub fn from_bytes(filename: &str, bytes: Vec<u8>) -> RawLoadImage {
+        Self::from_shared_bytes(filename, Arc::new(bytes))
+    }
+
+    pub fn from_shared_bytes(filename: &str, bytes: Arc<Vec<u8>>) -> RawLoadImage {
         RawLoadImage {
             filename: filename.to_string(),
             vma: 0,
@@ -98,7 +102,7 @@ impl RawLoadImage {
         }
         match std::fs::read(&self.filename) {
             Ok(bytes) => {
-                self.content = Some(bytes);
+                self.content = Some(Arc::new(bytes));
                 Ok(())
             }
             Err(_) => Err(Error::Lowlevel(format!(

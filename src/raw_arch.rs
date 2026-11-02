@@ -172,7 +172,7 @@ pub struct RawBinaryArchitecture {
     pub sleigh: SleighArchitecture,
     adjustvma: AtomicI64,
     loader: RwLock<Option<Arc<SharedRawLoadImage>>>,
-    image_bytes: Option<Vec<u8>>,
+    image_bytes: Option<Arc<Vec<u8>>>,
 }
 
 impl RawBinaryArchitecture {
@@ -186,6 +186,10 @@ impl RawBinaryArchitecture {
     }
 
     pub fn with_bytes(fname: &str, targ: &str, bytes: Vec<u8>, base_address: u64) -> RawBinaryArchitecture {
+        Self::with_shared_bytes(fname, targ, Arc::new(bytes), base_address)
+    }
+
+    pub fn with_shared_bytes(fname: &str, targ: &str, bytes: Arc<Vec<u8>>, base_address: u64) -> RawBinaryArchitecture {
         RawBinaryArchitecture {
             image_bytes: Some(bytes),
             adjustvma: AtomicI64::new(base_address as i64),
@@ -202,7 +206,7 @@ impl SleighArchitectureHooks for RawBinaryArchitecture {
     fn build_loader(&self, glb: &mut Architecture, _store: &mut DocumentStorage) -> Result<()> {
         self.sleigh.collect_spec_files();
         let mut ldr = match &self.image_bytes {
-            Some(bytes) => RawLoadImage::from_bytes(&self.sleigh.get_filename(), bytes.clone()),
+            Some(bytes) => RawLoadImage::from_shared_bytes(&self.sleigh.get_filename(), Arc::clone(bytes)),
             None => {
                 let mut ldr = RawLoadImage::new(&self.sleigh.get_filename());
                 ldr.open()?;

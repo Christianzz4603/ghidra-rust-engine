@@ -187,28 +187,33 @@ impl GhidraWorker {
         self.open_program(snapshot)
     }
 
-    fn open_program(&mut self, snapshot: ProgramSnapshot) -> Result<serde_json::Value, String> {
+    fn open_program(&mut self, mut snapshot: ProgramSnapshot) -> Result<serde_json::Value, String> {
         if snapshot.memory_blocks.is_empty() {
             return Err("program snapshot contains no initialized memory blocks".into());
         }
         let mut loaded_blocks = Vec::with_capacity(snapshot.memory_blocks.len());
         let mut report = HydrationCounters::default();
         let mut failures = Vec::new();
-        for block in &snapshot.memory_blocks {
+        let had_executable_memory = snapshot.memory_blocks.iter().any(|block| block.executable && !block.bytes.is_empty());
+        let memory_blocks = std::mem::take(&mut snapshot.memory_blocks);
+        for block in memory_blocks {
             if block.bytes.is_empty() { continue; }
-            let end = block.start.checked_add(block.bytes.len() as u64)
+            let block_start = block_start;
+            let block_executable = block_executable;
+            let end = block_start.checked_add(block.bytes.len() as u64)
                 .ok_or_else(|| "memory block address range overflow".to_string())?;
-            let mut program = match Program::from_raw_bytes(block.bytes.clone(), &snapshot.language_id, block.start) {
+            let shared_bytes = Arc::new(block.bytes);
+            let mut program = match Program::from_raw_shared_bytes(shared_bytes, &snapshot.language_id, block_start) {
                 Ok(program) => program,
                 Err(error) => {
-                    failures.push(format!("memory block {:#x}: {error}", block.start));
+                    failures.push(format!("memory block {:#x}: {error}", block_start));
                     continue;
                 }
             };
             report.memory_blocks_loaded += 1;
-            if block.executable { report.executable_blocks_loaded += 1; }
+            if block_executable { report.executable_blocks_loaded += 1; }
 
-            for function in snapshot.functions.iter().filter(|item| item.entry >= block.start && item.entry < end) {
+            for function in snapshot.functions.iter().filter(|item| item.entry >= block_start && item.entry < end) {
                 let qualified_name = function.namespace.as_ref().map(|namespace| format!("{namespace}::{}", function.name)).unwrap_or_else(|| function.name.clone());
                 match program.ensure_function_at(function.entry, Some(&qualified_name)) {
                     Ok(_) => report.functions_applied += 1,
@@ -222,7 +227,7 @@ impl GhidraWorker {
                     Err(error) => failures.push(format!("function prototype at {:#x}: {error}", function.entry)),
                 }
             }
-            for symbol in snapshot.symbols.iter().filter(|item| item.address >= block.start && item.address < end) {
+            for symbol in snapshot.symbols.iter().filter(|item| item.address >= block_start && item.address < end) {
                 let is_function = matches!(symbol.kind.to_ascii_lowercase().as_str(), "function" | "func" | "code")
                     || snapshot.functions.iter().any(|function| function.entry == symbol.address);
                 if is_function {
@@ -242,20 +247,20 @@ impl GhidraWorker {
                     }
                 }
             }
-            for comment in snapshot.comments.iter().filter(|item| item.address >= block.start && item.address < end) {
+            for comment in snapshot.comments.iter().filter(|item| item.address >= block_start && item.address < end) {
                 let function_entry = comment.function_entry.unwrap_or(comment.address);
                 match program.import_comment(function_entry, comment.address, &comment.kind, &comment.text) {
                     Ok(inserted) => { if inserted { report.comments_applied += 1; } else { report.duplicate_comments += 1; } },
                     Err(error) => failures.push(format!("comment at {:#x}: {error}", comment.address)),
                 }
             }
-            for reference in snapshot.references.iter().filter(|item| item.from >= block.start && item.from < end) {
+            for reference in snapshot.references.iter().filter(|item| item.from >= block_start && item.from < end) {
                 match program.import_reference(reference.from, reference.to, &reference.kind, reference.is_primary) {
                     Ok(inserted) => { if inserted { report.references_applied += 1; } },
                     Err(error) => failures.push(format!("reference {:#x}->{:#x}: {error}", reference.from, reference.to)),
                 }
             }
-            for relocation in snapshot.relocations.iter().filter(|item| item.address >= block.start && item.address < end) {
+            for relocation in snapshot.relocations.iter().filter(|item| item.address >= block_start && item.address < end) {
                 match program.import_relocation(relocation.address, &relocation.kind, relocation.symbol.as_deref(), relocation.addend) {
                     Ok(()) => report.relocations_recorded += 1,
                     Err(error) => failures.push(format!("relocation at {:#x}: {error}", relocation.address)),
@@ -267,7 +272,7 @@ impl GhidraWorker {
                     Err(error) => failures.push(format!("datatype {}: {error}", data_type.name)),
                 }
             }
-            for context in snapshot.context_values.iter().filter(|item| item.address >= block.start && item.address < end) {
+            for context in snapshot.context_values.iter().filter(|item| item.address >= block_start && item.address < end) {
                 match program.import_context_value(context.address, &context.register, context.value) {
                     Ok(()) => report.context_values_applied += 1,
                     Err(error) => failures.push(format!("context {} at {:#x}: {error}", context.register, context.address)),
@@ -275,7 +280,7 @@ impl GhidraWorker {
             }
             loaded_blocks.push(LoadedBlock { start: block.start, end, executable: block.executable, program });
         }
-        if !snapshot.memory_blocks.iter().any(|block| block.executable && !block.bytes.is_empty()) {
+        if !had_executable_memory {
             return Err("program snapshot contains no initialized executable memory blocks".into());
         }
         if !loaded_blocks.iter().any(|block| block.executable) {

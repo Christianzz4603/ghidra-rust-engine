@@ -4,7 +4,7 @@ mod stubs;
 mod symbols;
 
 use std::cell::RefCell;
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
 use std::fmt;
 use std::path::Path;
 use std::sync::Arc;
@@ -26,6 +26,7 @@ use crate::translate::{AddrSpaceManager, AssemblyEmit, PcodeEmit};
 use crate::types::TypeMetatype;
 use crate::xml::DocumentStorage;
 
+const MAX_INPUT_IMAGE_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 const MAX_PCODE_CACHE_BYTES: usize = 16 * 1024 * 1024;
 const MAX_PCODE_RANGE_BYTES: u64 = 4 * 1024 * 1024;
 const MAX_PCODE_INSTRUCTIONS: usize = 250_000;
@@ -35,6 +36,7 @@ const MAX_DECOMPILE_FUNCTION_BYTES: u64 = 1024 * 1024;
 #[derive(Default)]
 struct PcodeCache {
     entries: HashMap<(u64, u64), Arc<Vec<InstructionPcode>>>,
+    order: VecDeque<(u64, u64)>,
     estimated_bytes: usize,
 }
 
@@ -339,21 +341,27 @@ fn panic_guard<R>(run: impl FnOnce() -> Result<R>) -> Result<R> {
 }
 
 fn estimate_pcode_bytes(instructions: &[InstructionPcode]) -> usize {
-    instructions.iter().fold(0usize, |total, instruction| {
-        let operations = instruction.operations.iter().fold(0usize, |sum, operation| {
-            let varnodes = operation.inputs.iter().map(|input| {
-                std::mem::size_of::<PcodeVarnode>() + input.space.len()
-            }).sum::<usize>();
-            let output = operation.output.as_ref().map_or(0, |value| {
-                std::mem::size_of::<PcodeVarnode>() + value.space.len()
-            });
-            sum.saturating_add(std::mem::size_of::<PcodeOperation>())
-                .saturating_add(varnodes).saturating_add(output)
-                .saturating_add(operation.space.as_ref().map_or(0, String::len))
-        });
-        total.saturating_add(std::mem::size_of::<InstructionPcode>())
-            .saturating_add(operations)
-    })
+    instructions.iter().fold(
+        instructions.capacity().saturating_mul(std::mem::size_of::<InstructionPcode>()),
+        |total, instruction| {
+            let operations = instruction.operations.iter().fold(
+                instruction.operations.capacity().saturating_mul(std::mem::size_of::<PcodeOperation>()),
+                |sum, operation| {
+                    let varnodes = operation.inputs.iter().fold(
+                        operation.inputs.capacity().saturating_mul(std::mem::size_of::<PcodeVarnode>()),
+                        |bytes, input| bytes.saturating_add(input.space.capacity()),
+                    );
+                    let output = operation.output.as_ref().map_or(0, |value| {
+                        std::mem::size_of::<PcodeVarnode>() + value.space.capacity()
+                    });
+                    sum.saturating_add(varnodes)
+                        .saturating_add(output)
+                        .saturating_add(operation.space.as_ref().map_or(0, String::capacity))
+                },
+            );
+            total.saturating_add(operations)
+        },
+    )
 }
 
 impl Program {
@@ -362,6 +370,11 @@ impl Program {
     }
 
     pub fn open_with(path: &Path, language: Option<&str>, loading: SymbolLoading) -> Result<Program> {
+        let metadata = std::fs::metadata(path)
+            .map_err(|error| Error::Lowlevel(format!("failed to inspect '{}': {error}", path.display())))?;
+        if metadata.len() > MAX_INPUT_IMAGE_BYTES {
+            return Err(Error::Lowlevel(format!("image is {} bytes, exceeding the safe input limit of {} bytes", metadata.len(), MAX_INPUT_IMAGE_BYTES)));
+        }
         let bytes = std::fs::read(path)
             .map_err(|error| Error::Lowlevel(format!("failed to read '{}': {error}", path.display())))?;
         Program::from_image_with(&path.to_string_lossy(), bytes, language, loading)
@@ -389,8 +402,13 @@ impl Program {
     }
 
     pub fn from_raw_bytes(bytes: Vec<u8>, language: &str, base_address: u64) -> Result<Program> {
-        let code_end = base_address.saturating_add(bytes.len() as u64);
-        let builder = RawBinaryArchitecture::with_bytes("raw", language, bytes, base_address);
+        Self::from_raw_shared_bytes(Arc::new(bytes), language, base_address)
+    }
+
+    pub(crate) fn from_raw_shared_bytes(bytes: Arc<Vec<u8>>, language: &str, base_address: u64) -> Result<Program> {
+        let code_end = base_address.checked_add(bytes.len() as u64)
+            .ok_or_else(|| Error::Lowlevel("raw image address range overflow".to_string()))?;
+        let builder = RawBinaryArchitecture::with_shared_bytes("raw", language, bytes, base_address);
         let mut program = Program::initialize(Arc::new(builder), SymbolInput::None)?;
         program.code_sections = std::iter::once(base_address..code_end).collect();
         program.entry = Some(base_address);
@@ -1061,8 +1079,11 @@ impl Program {
 
     fn disassemble_unguarded(&self, address: u64, instruction_count: usize) -> Result<Vec<Instruction>> {
         let translate = self.architecture.translator()?;
+        if instruction_count > MAX_PCODE_INSTRUCTIONS {
+            return Err(Error::Lowlevel(format!("requested disassembly instruction count {instruction_count} exceeds safe limit {MAX_PCODE_INSTRUCTIONS}")));
+        }
         let mut current = self.code_address(address)?;
-        let mut instructions = Vec::with_capacity(instruction_count);
+        let mut instructions = Vec::with_capacity(instruction_count.min(4096));
         for _ in 0..instruction_count {
             let mut text = InstructionText {
                 mnemonic: String::new(),
@@ -1271,7 +1292,7 @@ impl Program {
             let mut remaining = byte_length;
             // Most supported targets use instructions of at least four bytes.
             // Cap the estimate to avoid huge speculative allocations on malformed inputs.
-            let estimated = usize::try_from((byte_length / 4).min(MAX_PCODE_INSTRUCTIONS as u64)).unwrap_or(0);
+            let estimated = usize::try_from((byte_length / 4).min(4096)).unwrap_or(0);
             let mut instructions = Vec::with_capacity(estimated);
             while remaining > 0 {
                 if instructions.len() >= MAX_PCODE_INSTRUCTIONS {
@@ -1321,8 +1342,13 @@ impl Program {
             return Err(Error::Lowlevel(format!("P-code range {byte_length} bytes exceeds safe limit {MAX_PCODE_RANGE_BYTES}")));
         }
         let key = (address, byte_length);
-        if let Some(cached) = self.pcode_cache.borrow().entries.get(&key).cloned() {
-            return Ok(cached);
+        {
+            let mut cache = self.pcode_cache.borrow_mut();
+            if let Some(cached) = cache.entries.get(&key).cloned() {
+                cache.order.retain(|item| *item != key);
+                cache.order.push_back(key);
+                return Ok(cached);
+            }
         }
         let translated = panic_guard(|| {
             let translate = self.architecture.translator()?;
@@ -1360,13 +1386,17 @@ impl Program {
         if entry_bytes <= MAX_PCODE_CACHE_BYTES {
             let mut cache = self.pcode_cache.borrow_mut();
             while cache.estimated_bytes.saturating_add(entry_bytes) > MAX_PCODE_CACHE_BYTES {
-                let Some(old_key) = cache.entries.keys().next().copied() else { break };
+                let Some(old_key) = cache.order.pop_front() else { break };
                 if let Some(old) = cache.entries.remove(&old_key) {
                     cache.estimated_bytes = cache.estimated_bytes.saturating_sub(estimate_pcode_bytes(&old));
                 }
             }
+            if let Some(previous) = cache.entries.insert(key, Arc::clone(&translated)) {
+                cache.estimated_bytes = cache.estimated_bytes.saturating_sub(estimate_pcode_bytes(&previous));
+                cache.order.retain(|item| *item != key);
+            }
             cache.estimated_bytes = cache.estimated_bytes.saturating_add(entry_bytes);
-            cache.entries.insert(key, Arc::clone(&translated));
+            cache.order.push_back(key);
         }
         Ok(translated)
     }
@@ -1386,7 +1416,7 @@ impl Program {
         }
         let translate = self.architecture.translator()?;
         let mut current = self.code_address(address)?;
-        let mut instructions = Vec::with_capacity(instruction_count);
+        let mut instructions = Vec::with_capacity(instruction_count.min(4096));
         for _ in 0..instruction_count {
             let mut collector = OperationCollector {
                 manager: &self.architecture.manager,

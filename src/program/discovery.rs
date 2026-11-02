@@ -10,7 +10,8 @@ use crate::oplist::LinkedNode;
 use crate::space::SpaceRef;
 
 const MAX_DISCOVERED_FUNCTIONS: usize = 100_000;
-const MAX_ARM64_PROLOGUE_CANDIDATES: usize = 100_000;
+const MAX_ARM64_PROLOGUE_CANDIDATES: usize = 50_000;
+const MAX_ARM64_SCAN_BYTES: u64 = 128 * 1024 * 1024;
 
 pub(super) struct FlowFacts {
     pub(super) call_targets: Vec<u64>,
@@ -37,7 +38,7 @@ impl Program {
             let mut facts = FlowFacts {
                 call_targets: Vec::new(),
                 constants: BTreeSet::new(),
-                body: entry..entry + 1,
+                body: entry..entry.saturating_add(1),
             };
             let mut position = function.begin_op_alive();
             while let Some(op) = position {
@@ -99,14 +100,23 @@ impl Program {
         const BTI_C: u32 = 0xD503_245F;
 
         let mut candidates = Vec::new();
+        let mut scanned_bytes = 0u64;
         for section in &self.code_sections {
-            let mut chunk_start = (section.start + 3) & !3;
-            while chunk_start < section.end {
-                let chunk_end = (chunk_start + CHUNK_SIZE + 12).min(section.end);
+            if scanned_bytes >= MAX_ARM64_SCAN_BYTES {
+                break;
+            }
+            let Some(aligned_start) = section.start.checked_add(3).map(|value| value & !3) else {
+                continue;
+            };
+            let mut chunk_start = aligned_start;
+            while chunk_start < section.end && scanned_bytes < MAX_ARM64_SCAN_BYTES {
+                let chunk_end = chunk_start.saturating_add(CHUNK_SIZE + 12).min(section.end)
+                    .min(chunk_start.saturating_add(MAX_ARM64_SCAN_BYTES - scanned_bytes));
                 let Ok(bytes) = self.read_code(chunk_start, chunk_end - chunk_start) else {
-                    chunk_start = (chunk_start + CHUNK_SIZE) & !3;
+                    chunk_start = chunk_start.saturating_add(CHUNK_SIZE) & !3;
                     continue;
                 };
+                scanned_bytes = scanned_bytes.saturating_add(bytes.len() as u64);
                 let words = bytes.len() / 4;
                 for index in 0..words {
                     let offset = index * 4;
