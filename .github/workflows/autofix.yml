@@ -18,21 +18,27 @@ jobs:
       - name: Install toolchain
         run: rustup toolchain install 1.98.1 --profile minimal --component clippy,rustfmt
 
-      - name: Apply clippy autofixes
-        continue-on-error: true
-        run: cargo clippy --fix --allow-dirty --allow-no-vcs --all-targets
+      - name: Patch remaining lints
+        run: |
+          sed -i 's/^use crate::comment::{Comment, CommentDatabase};$/use crate::comment::Comment;/' src/program.rs
+          sed -i '/^use crate::globalcontext::ContextDatabase;$/d' src/program.rs
+          sed -i -E '/^\s*let mut decompile_ok = 0usize;$/d; /^\s*decompile_ok \+= 1;$/d' src/ifacedecomp/printing.rs
+          if ! grep -q -B1 '^fn smali_type(' src/dex.rs || ! grep -B1 '^fn smali_type(' src/dex.rs | grep -q 'cfg(test)'; then
+            sed -i 's/^fn smali_type(/#[cfg(test)]\nfn smali_type(/' src/dex.rs
+          fi
+          git diff --stat
 
       - name: Apply rustfmt
         continue-on-error: true
         run: cargo fmt
 
-      - name: Commit autofixes
+      - name: Commit fixes
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A -- src tests examples
           if ! git diff --cached --quiet; then
-            git commit -m "Apply clippy and rustfmt autofixes"
+            git commit -m "Fix remaining clippy errors"
             git push
           fi
 
@@ -41,15 +47,16 @@ jobs:
         run: |
           {
             echo "== CLIPPY REMAINING =="
-            cargo clippy --all-targets --message-format=short -- -D warnings 2>&1 | grep -E "^(src|tests|examples).*(error|warning)|could not compile" | head -60
-            echo "== SNIPPETS =="
-            echo "-- dex.rs smali_type"; grep -n "smali_type" src/dex.rs | head
-            sed -n "$(grep -n 'fn smali_type' src/dex.rs | head -1 | cut -d: -f1),+14p" src/dex.rs
-            echo "-- printing.rs decompile_ok"; grep -n "decompile_ok" src/ifacedecomp/printing.rs
-            echo "-- object_arch.rs top-level items"; grep -nE "^(#\[cfg\(test\)\]|mod |fn |pub fn |impl |pub struct |pub static |struct |static |use )" src/object_arch.rs
+            cargo clippy --all-targets --message-format=short -- -D warnings 2>&1 | grep -E "^(src|tests|examples).*(error|warning)|could not compile|Finished" | head -60
+            echo "== DATATESTS.RS =="
+            sed -n '60,200p' tests/datatests.rs
+            echo "== new_test_console =="
+            grep -n 'fn new_test_console' -A30 src/testfunction.rs | head -60
             echo "== DATATEST (boolless) =="
-            DATATESTS_FILTER=boolless cargo test --test datatests -- --nocapture 2>&1 | grep -v "^   Compiling" | cut -c1-300 | head -80
+            RUST_BACKTRACE=1 DATATESTS_FILTER=boolless cargo test --test datatests -- --nocapture 2>&1 | grep -v "^   Compiling" | cut -c1-300 | head -40
+            echo "== LAST GOOD RUST CI? =="
+            git log --oneline -15
           } > autofix-report.txt 2>&1
           git add -f autofix-report.txt
-          git commit -m "Add autofix report (temporary)" || true
+          git commit -m "Update autofix report (temporary)" || true
           git push
