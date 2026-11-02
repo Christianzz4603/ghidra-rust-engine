@@ -5,6 +5,7 @@
 //! remains a machine-readable transport.
 
 use std::io::{self, BufReader, BufWriter};
+use std::sync::Arc;
 
 use serde_json::json;
 
@@ -198,8 +199,8 @@ impl GhidraWorker {
         let memory_blocks = std::mem::take(&mut snapshot.memory_blocks);
         for block in memory_blocks {
             if block.bytes.is_empty() { continue; }
-            let block_start = block_start;
-            let block_executable = block_executable;
+            let block_start = block.start;
+            let block_executable = block.executable;
             let end = block_start.checked_add(block.bytes.len() as u64)
                 .ok_or_else(|| "memory block address range overflow".to_string())?;
             let shared_bytes = Arc::new(block.bytes);
