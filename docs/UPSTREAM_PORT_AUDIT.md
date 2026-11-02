@@ -73,3 +73,8 @@ from mechanically translated code and do not describe an unimplemented subsystem
 ### Database hydration status (worker)
 
 The worker's `open_program` now eagerly creates a native `Program` for every non-empty snapshot memory block and imports function symbols, supported data symbols and comments into the Rust symbol/comment databases. Hydration counters and per-record warnings are returned to the host. Decompilation reuses these pre-hydrated executable-block instances. The transport now accepts datatype descriptors, references and processor-context records in addition to relocations. Those four metadata classes are explicitly deferred and remain available in the retained snapshot; they are not yet installed into native engine structures. The per-block raw loader is not a unified Ghidra address-space image, so cross-block references, relocations and functions spanning blocks remain unresolved.
+
+
+### Follow-up: native metadata hydration tables
+
+The worker now imports references into a per-Program reference index, stores relocation descriptors and imported datatype descriptors in native Program metadata tables, and applies named SLEIGH context variables through the architecture context database. These are distinct from full Ghidra parity: relocation arithmetic/byte patching, recursive datatype graph construction and symbol-to-type binding remain outstanding. The raw memory model remains one independent Program per memory block; it is not yet a unified address-space-backed ProgramDB. A Java exporter that serializes the live Ghidra database into the expanded protocol is also outstanding.
