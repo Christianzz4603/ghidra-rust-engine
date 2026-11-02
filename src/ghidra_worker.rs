@@ -16,6 +16,8 @@ use crate::ghidra_host::{
 };
 use crate::{Program, PseudocodeDecompiler};
 
+const MAX_WORKER_PCODE_CACHE_BYTES: usize = 8 * 1024 * 1024;
+
 struct PendingBlock {
     total_size: usize,
     bytes: Vec<u8>,
@@ -213,6 +215,7 @@ impl GhidraWorker {
         snapshot.context_values.sort_unstable_by_key(|item| item.address);
         let had_executable_memory = snapshot.memory_blocks.iter().any(|block| block.executable && !block.bytes.is_empty());
         let memory_blocks = std::mem::take(&mut snapshot.memory_blocks);
+        let per_program_cache_budget = MAX_WORKER_PCODE_CACHE_BYTES / memory_blocks.len().max(1);
         for block in memory_blocks {
             if block.bytes.is_empty() { continue; }
             let block_start = block.start;
@@ -227,6 +230,7 @@ impl GhidraWorker {
                     continue;
                 }
             };
+            program.set_pcode_cache_limit(per_program_cache_budget);
             report.memory_blocks_loaded += 1;
             if block_executable { report.executable_blocks_loaded += 1; }
 

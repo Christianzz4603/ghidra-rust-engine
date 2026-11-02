@@ -42,6 +42,18 @@ struct PcodeCache {
     entries: HashMap<(u64, u64), Arc<Vec<InstructionPcode>>>,
     order: VecDeque<(u64, u64)>,
     estimated_bytes: usize,
+    max_bytes: usize,
+}
+
+impl Default for PcodeCache {
+    fn default() -> Self {
+        Self {
+            entries: HashMap::new(),
+            order: VecDeque::new(),
+            estimated_bytes: 0,
+            max_bytes: MAX_PCODE_CACHE_BYTES,
+        }
+    }
 }
 
 pub struct Program {
@@ -1352,6 +1364,17 @@ impl Program {
 
     /// Return a shared translated P-code stream. Repeated analysis passes over
     /// the same function avoid translating every machine instruction again.
+    pub(crate) fn set_pcode_cache_limit(&mut self, max_bytes: usize) {
+        let mut cache = self.pcode_cache.borrow_mut();
+        cache.max_bytes = max_bytes;
+        while cache.estimated_bytes > cache.max_bytes {
+            let Some(old_key) = cache.order.pop_front() else { break };
+            if let Some(old) = cache.entries.remove(&old_key) {
+                cache.estimated_bytes = cache.estimated_bytes.saturating_sub(estimate_pcode_bytes(&old, old.capacity()));
+            }
+        }
+    }
+
     pub fn pcode_range_shared(&self, address: u64, byte_length: u64) -> Result<Arc<Vec<InstructionPcode>>> {
         if byte_length > MAX_PCODE_RANGE_BYTES {
             return Err(Error::Lowlevel(format!("P-code range {byte_length} bytes exceeds safe limit {MAX_PCODE_RANGE_BYTES}")));
@@ -1398,9 +1421,10 @@ impl Program {
         })?;
         let translated = Arc::new(translated);
         let entry_bytes = estimate_pcode_bytes(&translated, translated.capacity());
-        if entry_bytes <= MAX_PCODE_CACHE_BYTES {
+        {
             let mut cache = self.pcode_cache.borrow_mut();
-            while cache.estimated_bytes.saturating_add(entry_bytes) > MAX_PCODE_CACHE_BYTES {
+            if entry_bytes <= cache.max_bytes {
+            while cache.estimated_bytes.saturating_add(entry_bytes) > cache.max_bytes {
                 let Some(old_key) = cache.order.pop_front() else { break };
                 if let Some(old) = cache.entries.remove(&old_key) {
                     cache.estimated_bytes = cache.estimated_bytes.saturating_sub(estimate_pcode_bytes(&old, old.capacity()));
@@ -1412,6 +1436,7 @@ impl Program {
             }
             cache.estimated_bytes = cache.estimated_bytes.saturating_add(entry_bytes);
             cache.order.push_back(key);
+            }
         }
         Ok(translated)
     }

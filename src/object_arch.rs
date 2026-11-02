@@ -42,8 +42,8 @@ const EM_ARM: u16 = 40;
 
 const BUFFER_SIZE: usize = 512;
 const MAX_OBJECT_SECTIONS: usize = 131_072;
-const MAX_OBJECT_SYMBOLS: usize = 1_000_000;
-const MAX_SYMBOL_NAME_BYTES: usize = 4_096;
+const MAX_OBJECT_SYMBOLS: usize = 250_000;
+const MAX_SYMBOL_NAME_BYTES: usize = 1_024;
 
 #[derive(Clone, Debug, Default)]
 struct ObjectSectionRecord {

@@ -7,7 +7,7 @@ The engine uses defensive limits and bounded work to reduce the chance that a la
 - File-backed image loading reads at most 512 MiB plus one byte before rejecting an oversized input.
 - Raw program memory is shared through `Arc` between the worker, architecture builder, and load-image implementation. The worker moves received blocks into that shared backing store instead of retaining an extra copy in its snapshot.
 - ELF and generic object parsing cap section and symbol enumeration, bound symbol-name length, and validate file-backed section ranges with checked arithmetic.
-- P-code cache eviction is least-recently-used and accounts for vector and string capacities rather than only logical element sizes.
+- P-code cache eviction is least-recently-used and accounts for vector and string capacities rather than only logical element sizes. Worker cache budgets are shared across loaded memory blocks, capped at 8 MiB in total.
 - P-code and disassembly requests have range and instruction-count limits, and their initial allocations are kept modest.
 - ARM64 prologue scanning is chunked and stops after a 128 MiB scan budget or 50,000 candidates.
 - Worker requests are isolated. An unexpected unwind becomes an error response, and the worker resets its session before accepting another request.
@@ -18,7 +18,7 @@ The engine uses defensive limits and bounded work to reduce the chance that a la
 - Analyze one function or bounded address range at a time.
 - Release returned instruction and pseudocode buffers when they are no longer needed.
 - Treat an oversized function or request as a per-operation failure, not a reason to retry the same work without limits.
-- Keep the host snapshot and worker memory transfer bounded. Avoid converting large binary buffers to hexadecimal JSON when the chunked binary transport is available.
+- Keep the host snapshot and worker memory transfer bounded. Prefer chunked memory transfer over one giant snapshot. The current chunk protocol still uses hexadecimal JSON, so it reduces peak transfer size but does not remove hex expansion.
 
 ## Known limits
 
