@@ -1,81 +1,74 @@
 == CLIPPY REMAINING ==
-examples/webui.rs:334:4: error: function `main` is never used
-error: could not compile `ghidra-decompiler` (example "decomp") due to 1 previous error
-== Cargo.toml (example/bin sections) ==
-14:[[bin]]
-15-name = "ghidra-rust-worker"
-16-path = "src/bin/ghidra-rust-worker.rs"
-17-
-18-[dependencies]
-19-cpp_demangle = { version = "0.5.1", optional = true }
-20-lzma-rs = "0.3"
-decomp.rs
-inspect.rs
-raw_decompile.rs
-webui.rs
-== webui.rs ==
-1:use std::io::{Read, Write};
-2:use std::net::{TcpListener, TcpStream};
-3:use std::path::Path;
-4:use std::sync::{Arc, Mutex};
-5:use std::time::Duration;
-7:use ghidra_decompiler::Program;
-334:fn main() {
-                });
-            }
-            Err(error) => eprintln!("[webui] connection error: {error}"),
-        }
-    }
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 29.25s
+== grep Usage: decompile ==
+src/ifacedecomp/printing.rs:163:        return Err(IfaceError::Parse("Usage: decompile <function>".to_string()));
+file=src/ifacedecomp/printing.rs line=163
+        .clone()
+        .ok_or_else(|| IfaceError::Core(Error::Lowlevel("missing load image".to_string())))?;
+    let buffer = loader.load(size, &offset)?;
+    let _ = file.write_all(&buffer);
     Ok(())
 }
 
-/// Launch the local web interface. Pass an optional port as the first argument.
-fn main() {
-    let port = std::env::args()
-        .nth(1)
-        .and_then(|value| value.parse::<u16>().ok())
-        .unwrap_or(8080);
-
-    if let Err(error) = run(port) {
-        eprintln!("failed to start web UI on 127.0.0.1:{port}: {error}");
-        std::process::exit(1);
+fn perform_report(optr: &OutStream, res: i32, glb: &mut Architecture) {
+    if res < 0 {
+        out_write(optr, "Break at ");
+        let mut state = String::new();
+        if let Some(action) = glb.allacts.get_current() {
+            action.print_state(&mut state);
+        }
+        out_write(optr, &state);
+    } else {
+        out_write(optr, "Decompilation complete");
+        if res == 0 {
+            out_write(optr, " (no change)");
+        }
     }
+    out_write(optr, "\n");
 }
-== DATATEST (boolless, console) ==
-    Finished `test` profile [optimized + debuginfo] target(s) in 2m 04s
-     Running tests/datatests.rs (target/debug/deps/datatests-d1d3404ca1a835e7)
 
-running 1 test
-datatest console output for /home/runner/work/ghidra-rust-engine/ghidra-rust-engine/tests/data/datatests/boolless.xml:
-Error: Did not apply tests in /home/runner/work/ghidra-rust-engine/ghidra-rust-engine/tests/data/datatests/boolless.xml
-> Function boolless: 0xa000
-> Command parsing error: Usage: decompile <function>
-Aborting process
-> Function ERROR: Function not decompiled
-Aborting process
-> 
+pub fn ifc_decompile(args: &mut IStream, status: &mut IfaceStatus) -> IfaceResult<()> {
+    let optr = status.optr.clone();
+    let mut requested_name = String::new();
+    args.ws();
+    args.read_word_into(&mut requested_name);
+    if requested_name.is_empty() {
+        return Err(IfaceError::Parse("Usage: decompile <function>".to_string()));
+    }
 
-FAIL boolless.xml: 0/2 passed (0 applied) -- Execution failed for /home/runner/work/ghidra-rust-engine/ghidra-rust-engine/tests/data/datatests/boolless.xml
-Total: 0/2 checks passed (0 applied) in 1 files, 0 skipped (processor feature disabled)
-
-
-thread 'datatests' (5290) panicked at tests/datatests.rs:188:5:
-assertion `left == right` failed: datatest checks failed:
-FAIL boolless.xml: 0/2 passed (0 applied) -- Execution failed for /home/runner/work/ghidra-rust-engine/ghidra-rust-engine/tests/data/datatests/boolless.xml
-Total: 0/2 checks passed (0 applied) in 1 files, 0 skipped (processor feature disabled)
-
-  left: 0
- right: 2
-note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
-test datatests ... FAILED
-
-failures:
-
-failures:
-    datatests
-
-test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
-
-error: test failed, to rerun pass `--test datatests`
-== git log ==
-0e8d4c6 Temporary CI: make diagnostics step tolerate non-matching greps
+    if !requested_name.is_empty() {
+        let dcp = decomp_data(status);
+        let glb = conf_mut(dcp, "No image loaded")?;
+        let delim = glb.get_scope_delimiter();
+        let mut basename = String::new();
+        let symboltab = symbol_table(glb)?;
+        let Some(scope) = symboltab.resolve_scope_from_symbol_name(&requested_name, &delim, &mut basename, None) else {
+            return Err(IfaceError::Execution(format!("Unknown function: {requested_name}")));
+        };
+        let Some(sym) = symboltab.scope_query_function_by_name(scope, &basename) else {
+            return Err(IfaceError::Execution(format!("Unknown function: {requested_name}")));
+        };
+        dcp.fd = Some(sym);
+== git log -S ==
+2effb59 2026-10-31 Add command usage hints and cwd-independent startup
+== boolless.xml ==
+<decompilertest>
+  <!--
+     Function accessing a boolean test through the high-bit of a status register via INT_SRIGHT.
+  -->
+<binaryimage arch="8051:BE:16:default:default">
+<bytechunk space="CODE" offset="0xa000">
+e5
+52b40b005002740122
+</bytechunk>
+<symbol space="CODE" offset="0xa000" name="boolless"/>
+</binaryimage>
+<script>
+  <com>lo fu boolless</com>
+  <com>dec</com>
+  <com>print C</com>
+  <com>quit</com>
+</script>
+<stringmatch name="Boolean thru Less-than #1" min="1" max="1">if \(uINTMEM52 &lt; 0xb\)</stringmatch>
+<stringmatch name="Boolean thru Less-than #2" min="0" max="0">&lt;&lt; 7</stringmatch>
+</decompilertest>
