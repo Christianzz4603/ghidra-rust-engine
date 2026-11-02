@@ -241,7 +241,7 @@ fn parse_elf<'data, Elf: FileHeader<Endian = Endianness>>(
         }
     }
     let mut regular = vec![false; table.len().min(MAX_OBJECT_SECTIONS)];
-    for (index, section) in table.iter().enumerate() {
+    for (index, section) in table.iter().take(MAX_OBJECT_SECTIONS).enumerate() {
         if index == 0 {
             continue;
         }
@@ -398,6 +398,19 @@ fn parse_object(data: &[u8]) -> Option<ParsedObject> {
         _ => return None,
     }
     Some(parsed)
+}
+
+#[cfg(test)]
+mod parser_safety_tests {
+    use super::valid_file_range;
+
+    #[test]
+    fn rejects_section_ranges_outside_the_file() {
+        assert!(valid_file_range(4, 4, 8));
+        assert!(!valid_file_range(4, 5, 8));
+        assert!(!valid_file_range(u64::MAX, 2, 8));
+        assert!(!valid_file_range(0, u64::MAX, 8));
+    }
 }
 
 fn parse_binary(data: &[u8]) -> ParsedObject {
