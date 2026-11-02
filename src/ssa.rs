@@ -24,21 +24,28 @@ impl SsaAnalyzer {
    ops_by_block.entry(start).or_default().push(OpRef{address:i.address,index,operation:op.clone()});
   } } }
   for block_ops in ops_by_block.values_mut() { block_ops.sort_by_key(|op| (op.address, op.index)); }
-  let starts:BTreeSet<u64>=cfg.blocks.iter().map(|b|b.start).collect(); let mut preds=BTreeMap::<u64,BTreeSet<u64>>::new();
-  for e in &cfg.edges { if e.kind==FlowKind::Call {continue;} if let Some(to)=e.to {if starts.contains(&e.from)&&starts.contains(&to){preds.entry(to).or_default().insert(e.from);}} }
+  let starts:BTreeSet<u64>=cfg.blocks.iter().map(|b|b.start).collect(); let mut preds=BTreeMap::<u64,BTreeSet<u64>>::new(); let mut succs=BTreeMap::<u64,BTreeSet<u64>>::new();
+  for e in &cfg.edges { if e.kind==FlowKind::Call {continue;} if let Some(to)=e.to {if starts.contains(&e.from)&&starts.contains(&to){preds.entry(to).or_default().insert(e.from);succs.entry(e.from).or_default().insert(to);}} }
   let mut next=1u32; let mut def_ids=BTreeMap::<(u64,u64,usize),SsaVersion>::new();
   for b in &cfg.blocks {if let Some(ops)=ops_by_block.get(&b.start){for op in ops {if op.operation.output.as_ref().is_some_and(|v|v.space!="const"){def_ids.insert((b.start,op.address,op.index),SsaVersion(next));next=next.saturating_add(1);}}}}
   let mut phi_ids=BTreeMap::<(u64,VarnodeIdentity),SsaVersion>::new();
   for b in &cfg.blocks {for v in &vars {phi_ids.insert((b.start,v.clone()),SsaVersion(next));next=next.saturating_add(1);}}
   let zero=SsaVersion(0); let initial:BTreeMap<_,_>=vars.iter().cloned().map(|v|(v,zero)).collect();
   let mut ins:BTreeMap<u64,BTreeMap<VarnodeIdentity,SsaVersion>>=cfg.blocks.iter().map(|b|(b.start,initial.clone())).collect();
-  let mut outs=ins.clone(); let limit=cfg.blocks.len().saturating_mul(vars.len().saturating_add(1)).saturating_mul(4).max(8); let mut iterations=0;let mut converged=false;
-  for _ in 0..limit {iterations+=1;let mut changed=false;for b in &cfg.blocks {
-   let ps=preds.get(&b.start).cloned().unwrap_or_default();let mut incoming=BTreeMap::new();
-   for v in &vars {let mut versions:BTreeSet<_>=ps.iter().filter_map(|p|outs.get(p).and_then(|s|s.get(v)).copied()).collect();if b.start==cfg.function{versions.insert(zero);}let ver=if versions.len()>1{phi_ids[&(b.start,v.clone())]}else{versions.iter().next().copied().unwrap_or(zero)};incoming.insert(v.clone(),ver);}
-   let mut outgoing=incoming.clone();if let Some(ops)=ops_by_block.get(&b.start){for op in ops {if let Some(v)=&op.operation.output {if v.space!="const" {if let Some(id)=def_ids.get(&(b.start,op.address,op.index)){outgoing.insert(v.into(),*id);}}}}}
-   if ins.get(&b.start)!=Some(&incoming){ins.insert(b.start,incoming);changed=true;}if outs.get(&b.start)!=Some(&outgoing){outs.insert(b.start,outgoing);changed=true;}
-  }if !changed{converged=true;break;}}
+  let mut outs=ins.clone(); let block_by_start:BTreeMap<_,_>=cfg.blocks.iter().map(|b|(b.start,b)).collect();
+  let limit=cfg.blocks.len().saturating_mul(vars.len().saturating_add(1)).saturating_mul(def_ids.len().saturating_add(cfg.blocks.len()).saturating_add(1)).saturating_mul(8).clamp(64,10_000_000);
+  let mut queue=starts.clone(); let mut queued=queue.clone(); let mut iterations=0usize;
+  while !queue.is_empty() && iterations<limit {
+   let start=queue.pop_first().unwrap(); queued.remove(&start); iterations=iterations.saturating_add(1);
+   let Some(b)=block_by_start.get(&start).copied() else {continue;};
+   let ps=preds.get(&start).cloned().unwrap_or_default(); let mut incoming=BTreeMap::new();
+   for v in &vars {let mut versions:BTreeSet<_>=ps.iter().filter_map(|p|outs.get(p).and_then(|s|s.get(v)).copied()).collect();if start==cfg.function{versions.insert(zero);}let ver=if versions.len()>1{phi_ids[&(start,v.clone())]}else{versions.iter().next().copied().unwrap_or(zero)};incoming.insert(v.clone(),ver);}
+   let mut outgoing=incoming.clone();if let Some(ops)=ops_by_block.get(&start){for op in ops {if let Some(v)=&op.operation.output {if v.space!="const" {if let Some(id)=def_ids.get(&(start,op.address,op.index)){outgoing.insert(v.into(),*id);}}}}}
+   let in_changed=ins.get(&start)!=Some(&incoming);let out_changed=outs.get(&start)!=Some(&outgoing);
+   if in_changed {ins.insert(start,incoming);} if out_changed {outs.insert(start,outgoing);}
+   if out_changed {if let Some(next_blocks)=succs.get(&start){for next in next_blocks {if queued.insert(*next){queue.insert(*next);}}}}
+  }
+  let converged=queue.is_empty();
   let mut report=SsaReport{variable_count:vars.len(),definition_count:def_ids.len(),iterations,converged,..Default::default()};
   for b in &cfg.blocks {let ps=preds.get(&b.start).cloned().unwrap_or_default();let mut phis=Vec::new();
    for v in &vars {let mut incoming:Vec<_>=ps.iter().map(|p|(*p,outs.get(p).and_then(|s|s.get(v)).copied().unwrap_or(zero))).collect();if b.start==cfg.function{incoming.push((cfg.function,zero));}let distinct:BTreeSet<_>=incoming.iter().map(|x|x.1).collect();if distinct.len()>1{phis.push(SsaPhi{variable:v.clone(),version:phi_ids[&(b.start,v.clone())],incoming});}}
