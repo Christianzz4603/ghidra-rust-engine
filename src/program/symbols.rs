@@ -5,6 +5,10 @@ use object::elf::{SHN_LORESERVE, STT_FUNC, STT_GNU_IFUNC, STT_OBJECT};
 use object::read::elf::{ElfFile, FileHeader, Sym, SymbolTable};
 use object::{Endianness, Object, ObjectSection, ObjectSymbol, ObjectSymbolTable, RelocationTarget, SectionKind};
 
+const MAX_IMAGE_SECTIONS: usize = 131_072;
+const MAX_IMAGE_SYMBOLS: usize = 1_000_000;
+const MAX_IMAGE_SYMBOL_NAME_BYTES: usize = 4_096;
+
 pub(crate) struct NamedAddress {
     pub(crate) name: String,
     pub(crate) address: u64,
@@ -49,8 +53,12 @@ pub(crate) fn image_symbols(bytes: &[u8]) -> ImageSymbols {
     };
     let section_ranges = |kinds: &[SectionKind]| -> Vec<Range<u64>> {
         file.sections()
+            .take(MAX_IMAGE_SECTIONS)
             .filter(|section| kinds.contains(&section.kind()))
-            .map(|section| section.address()..section.address() + section.size())
+            .filter_map(|section| {
+                let start = section.address();
+                start.checked_add(section.size()).map(|end| start..end)
+            })
             .collect()
     };
     ImageSymbols {
@@ -68,9 +76,13 @@ fn elf_symbols<'data, Elf: FileHeader<Endian = Endianness>>(elf: &ElfFile<'data,
     let dynamic_functions = table
         .iter()
         .skip(1)
+        .take(MAX_IMAGE_SYMBOLS)
         .filter(|symbol| matches!(symbol.st_type(), STT_FUNC | STT_GNU_IFUNC) && symbol.st_shndx(endian) != 0)
         .filter_map(|symbol| {
             let name = table.symbol_name(endian, symbol).ok()?;
+            if name.len() > MAX_IMAGE_SYMBOL_NAME_BYTES {
+                return None;
+            }
             let value: u64 = symbol.st_value(endian).into();
             Some(NamedAddress {
                 name: String::from_utf8_lossy(name).into_owned(),
@@ -82,8 +94,10 @@ fn elf_symbols<'data, Elf: FileHeader<Endian = Endianness>>(elf: &ElfFile<'data,
     let undefined_names = symbol_table
         .iter()
         .skip(1)
+        .take(MAX_IMAGE_SYMBOLS)
         .filter(|symbol| symbol.st_shndx(endian) == 0)
         .filter_map(|symbol| symbol_table.symbol_name(endian, symbol).ok())
+        .filter(|name| name.len() <= MAX_IMAGE_SYMBOL_NAME_BYTES)
         .map(|name| String::from_utf8_lossy(name).into_owned())
         .collect();
     let mut data_addresses = BTreeSet::new();
@@ -103,10 +117,14 @@ fn elf_symbols<'data, Elf: FileHeader<Endian = Endianness>>(elf: &ElfFile<'data,
         got_slot_size: if elf.is_64() { 8 } else { 4 },
         stub_sections: elf
             .sections()
+            .take(MAX_IMAGE_SECTIONS)
             .filter(|section| {
                 section.kind() == SectionKind::Text && section.name().is_ok_and(|name| name.contains("plt"))
             })
-            .map(|section| section.address()..section.address() + section.size())
+            .filter_map(|section| {
+                let start = section.address();
+                start.checked_add(section.size()).map(|end| start..end)
+            })
             .collect(),
         stub_base_register: stub_base_register(elf),
     }
@@ -119,12 +137,16 @@ fn elf_data_symbols<'data, Elf: FileHeader<Endian = Endianness>>(
     symbols
         .iter()
         .skip(1)
+        .take(MAX_IMAGE_SYMBOLS)
         .filter(|symbol| {
             let section = symbol.st_shndx(endian);
             symbol.st_type() == STT_OBJECT && section != 0 && section < SHN_LORESERVE
         })
         .filter_map(|symbol| {
             let name = symbols.symbol_name(endian, symbol).ok()?;
+            if name.len() > MAX_IMAGE_SYMBOL_NAME_BYTES {
+                return None;
+            }
             let size: u64 = symbol.st_size(endian).into();
             (size > 0 && !name.is_empty()).then(|| DataSymbol {
                 name: String::from_utf8_lossy(name).into_owned(),
@@ -137,10 +159,15 @@ fn elf_data_symbols<'data, Elf: FileHeader<Endian = Endianness>>(
 
 fn generic_data_symbols(file: &object::File<'_>) -> Vec<DataSymbol> {
     file.symbols()
+        .take(MAX_IMAGE_SYMBOLS)
         .filter(|symbol| symbol.kind() == object::SymbolKind::Data && symbol.is_definition() && symbol.size() > 0)
         .filter_map(|symbol| {
+            let name = symbol.name().ok()?;
+            if name.len() > MAX_IMAGE_SYMBOL_NAME_BYTES {
+                return None;
+            }
             Some(DataSymbol {
-                name: symbol.name().ok()?.to_string(),
+                name: name.to_string(),
                 address: symbol.address(),
                 size: symbol.size(),
             })
@@ -157,6 +184,7 @@ fn got_slot_symbols<'data, Elf: FileHeader<Endian = Endianness>>(
     elf.dynamic_relocations()
         .into_iter()
         .flatten()
+        .take(MAX_IMAGE_SYMBOLS)
         .filter_map(|(slot, relocation)| {
             let RelocationTarget::Symbol(index) = relocation.target() else {
                 return None;

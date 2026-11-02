@@ -18,7 +18,7 @@ use crate::database::{Database, ScopeId, SymbolId};
 use crate::error::{Error, Result};
 use crate::globalcontext::ContextDatabase;
 use crate::loadimage::LoadImageFunc;
-use crate::object_arch::{ObjectArchitecture, is_object_file};
+use crate::object_arch::ObjectArchitecture;
 use crate::opcodes::{OpCode, get_opname};
 use crate::pcoderaw::VarnodeData;
 use crate::raw_arch::RawBinaryArchitecture;
@@ -404,9 +404,6 @@ impl Program {
     ) -> Result<Program> {
         if bytes.len() as u64 > MAX_INPUT_IMAGE_BYTES {
             return Err(Error::Lowlevel(format!("image exceeds the safe input limit of {} bytes", MAX_INPUT_IMAGE_BYTES)));
-        }
-        if !is_object_file(&bytes) {
-            return Err(Error::Lowlevel(format!("unrecognized executable format: {name}")));
         }
         let symbols = match loading {
             SymbolLoading::Loader => SymbolInput::Loader,
