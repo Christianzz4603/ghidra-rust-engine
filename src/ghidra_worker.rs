@@ -13,7 +13,6 @@ use crate::ghidra_host::{
     MemoryBlock, MemoryBlockChunk, ProgramSnapshot,
 };
 use crate::{Program, PseudocodeDecompiler};
-use crate::pseudocode::PseudocodeOptions;
 
 struct PendingBlock {
     total_size: usize,
