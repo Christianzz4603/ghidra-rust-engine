@@ -87,6 +87,7 @@ pub mod pseudocode;
 pub mod microcode;
 pub mod reconstruction;
 pub mod flirt;
+pub mod filemanage;
 pub mod lumina;
 pub mod rangemap;
 pub mod rangeutil;
