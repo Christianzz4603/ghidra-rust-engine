@@ -51,7 +51,6 @@ pub fn ifc_load_file(args: &mut IStream, status: &mut IfaceStatus) -> IfaceResul
         return Ok(());
     }
 
-    glb.read_loader_symbols()?;
     let description = glb.get_description();
     out_write(&optr, &format!("{filename} successfully loaded: {description}\n"));
     Ok(())
