@@ -60,13 +60,12 @@ fn fetch_latest_tag() -> Option<String> {
 
     if let Ok(contents) = fs::read_to_string(&cache) {
         let mut lines = contents.lines();
-        if let (Some(timestamp), Some(tag)) = (lines.next(), lines.next()) {
-            if timestamp
+        if let (Some(timestamp), Some(tag)) = (lines.next(), lines.next())
+            && timestamp
                 .parse::<u64>()
                 .is_ok_and(|time| now.saturating_sub(time) < 21_600)
-            {
-                return Some(tag.to_string());
-            }
+        {
+            return Some(tag.to_string());
         }
     }
 
@@ -272,6 +271,7 @@ fn main() -> ExitCode {
     );
     status.attach_sink(&optr, Box::new(std::io::stdout()));
     register_all_commands(&mut status);
+    ghidra_decompiler::ifacedecomp::set_decompile_autosave(true);
     register_console_commands(&mut status);
     if let Some(script) = initscript {
         match status.push_script_file(&script, "init> ") {

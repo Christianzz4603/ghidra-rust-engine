@@ -403,19 +403,6 @@ fn parse_object(data: &[u8]) -> Option<ParsedObject> {
     Some(parsed)
 }
 
-#[cfg(test)]
-mod parser_safety_tests {
-    use super::valid_file_range;
-
-    #[test]
-    fn rejects_section_ranges_outside_the_file() {
-        assert!(valid_file_range(4, 4, 8));
-        assert!(!valid_file_range(4, 5, 8));
-        assert!(!valid_file_range(u64::MAX, 2, 8));
-        assert!(!valid_file_range(0, u64::MAX, 8));
-    }
-}
-
 fn parse_binary(data: &[u8]) -> ParsedObject {
     ParsedObject {
         archtype: "UNKNOWN!:binary".to_string(),
@@ -989,5 +976,18 @@ impl SleighArchitectureHooks for ObjectArchitecture {
             glb.restore_xml_base(store)?;
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod parser_safety_tests {
+    use super::valid_file_range;
+
+    #[test]
+    fn rejects_section_ranges_outside_the_file() {
+        assert!(valid_file_range(4, 4, 8));
+        assert!(!valid_file_range(4, 5, 8));
+        assert!(!valid_file_range(u64::MAX, 2, 8));
+        assert!(!valid_file_range(0, u64::MAX, 8));
     }
 }

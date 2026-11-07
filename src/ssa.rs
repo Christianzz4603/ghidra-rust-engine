@@ -71,10 +71,10 @@ impl SsaAnalyzer {
                             vars.insert(v.into());
                         }
                     }
-                    if let Some(v) = &op.output {
-                        if v.space != "const" {
-                            vars.insert(v.into());
-                        }
+                    if let Some(v) = &op.output
+                        && v.space != "const"
+                    {
+                        vars.insert(v.into());
                     }
                     ops_by_block.entry(start).or_default().push(OpRef {
                         address: i.address,
@@ -90,10 +90,11 @@ impl SsaAnalyzer {
             if e.kind == FlowKind::Call {
                 continue;
             }
-            if let Some(to) = e.to {
-                if starts.contains(&e.from) && starts.contains(&to) {
-                    preds.entry(to).or_default().insert(e.from);
-                }
+            if let Some(to) = e.to
+                && starts.contains(&e.from)
+                && starts.contains(&to)
+            {
+                preds.entry(to).or_default().insert(e.from);
             }
         }
         let mut next = 1u32;
@@ -149,12 +150,11 @@ impl SsaAnalyzer {
                 let mut outgoing = incoming.clone();
                 if let Some(ops) = ops_by_block.get(&b.start) {
                     for op in ops {
-                        if let Some(v) = &op.operation.output {
-                            if v.space != "const" {
-                                if let Some(id) = def_ids.get(&(b.start, op.address, op.index)) {
-                                    outgoing.insert(v.into(), *id);
-                                }
-                            }
+                        if let Some(v) = &op.operation.output
+                            && v.space != "const"
+                            && let Some(id) = def_ids.get(&(b.start, op.address, op.index))
+                        {
+                            outgoing.insert(v.into(), *id);
                         }
                     }
                 }

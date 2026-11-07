@@ -104,7 +104,7 @@ impl Default for GhidraWorker {
     }
 }
 
-fn items_in_range<'a, T, F>(items: &'a [T], start: u64, end: u64, address: F) -> &'a [T]
+fn items_in_range<T, F>(items: &[T], start: u64, end: u64, address: F) -> &[T]
 where
     F: Fn(&T) -> u64,
 {

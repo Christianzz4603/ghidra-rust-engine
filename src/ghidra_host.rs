@@ -564,7 +564,7 @@ fn optional_string(value: &Value, key: &str, maximum: usize) -> Result<Option<St
 }
 
 fn decode_hex(value: &str, maximum_bytes: usize) -> Result<Vec<u8>, String> {
-    if value.len() % 2 != 0 {
+    if !value.len().is_multiple_of(2) {
         return Err("memory block hex payload must have an even number of digits".into());
     }
     if value.len() / 2 > maximum_bytes {
@@ -572,9 +572,10 @@ fn decode_hex(value: &str, maximum_bytes: usize) -> Result<Vec<u8>, String> {
     }
     let bytes = value.as_bytes();
     let mut decoded = Vec::with_capacity(bytes.len() / 2);
-    for pair in bytes.chunks_exact(2) {
-        let high = hex_nibble(pair[0]).ok_or("memory block contains a non-hexadecimal digit")?;
-        let low = hex_nibble(pair[1]).ok_or("memory block contains a non-hexadecimal digit")?;
+    let (pairs, _) = bytes.as_chunks::<2>();
+    for &[high_digit, low_digit] in pairs {
+        let high = hex_nibble(high_digit).ok_or("memory block contains a non-hexadecimal digit")?;
+        let low = hex_nibble(low_digit).ok_or("memory block contains a non-hexadecimal digit")?;
         decoded.push((high << 4) | low);
     }
     Ok(decoded)

@@ -274,9 +274,9 @@ fn extract_declaration(pseudocode: &str) -> Option<String> {
 
 fn reconstruct_control_flow(cfg: &ControlFlowGraph) -> ControlFlowReconstruction {
     let nodes: Vec<u64> = cfg.blocks.iter().map(|b| b.start).collect();
-    let Some(&entry) = nodes.first() else {
+    if nodes.is_empty() {
         return ControlFlowReconstruction::default();
-    };
+    }
     let node_set: BTreeSet<u64> = nodes.iter().copied().collect();
     let indices: HashMap<u64, usize> = nodes.iter().enumerate().map(|(i, node)| (*node, i)).collect();
     let mut predecessors = BTreeMap::<u64, BTreeSet<u64>>::new();
@@ -284,10 +284,10 @@ fn reconstruct_control_flow(cfg: &ControlFlowGraph) -> ControlFlowReconstruction
     let mut predecessor_indices = vec![Vec::<usize>::new(); nodes.len()];
     let mut fallthroughs = HashMap::<u64, u64>::new();
     for edge in &cfg.edges {
-        if edge.kind == FlowKind::Fallthrough {
-            if let Some(to) = edge.to {
-                fallthroughs.entry(edge.from).or_insert(to);
-            }
+        if edge.kind == FlowKind::Fallthrough
+            && let Some(to) = edge.to
+        {
+            fallthroughs.entry(edge.from).or_insert(to);
         }
         if let Some(to) = edge.to.filter(|to| node_set.contains(to)) {
             successors.entry(edge.from).or_default().insert(to);
@@ -300,12 +300,12 @@ fn reconstruct_control_flow(cfg: &ControlFlowGraph) -> ControlFlowReconstruction
 
     // Dense bitsets avoid allocating and intersecting a BTreeSet for every
     // predecessor on every fixed-point iteration. Complexity is word-parallel.
-    let words = (nodes.len() + 63) / 64;
+    let words = nodes.len().div_ceil(64);
     let mut all = vec![u64::MAX; words];
-    if nodes.len() % 64 != 0 {
-        if let Some(last) = all.last_mut() {
-            *last = (1u64 << (nodes.len() % 64)) - 1;
-        }
+    if !nodes.len().is_multiple_of(64)
+        && let Some(last) = all.last_mut()
+    {
+        *last = (1u64 << (nodes.len() % 64)) - 1;
     }
     let mut dom = vec![all.clone(); nodes.len()];
     dom[0].fill(0);

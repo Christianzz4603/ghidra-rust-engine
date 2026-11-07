@@ -157,11 +157,11 @@ impl FileManage {
     /// Split into parent path and basename. A trailing separator is ignored.
     pub fn split_path(full: impl AsRef<Path>) -> (PathBuf, String) {
         let text = full.as_ref().to_string_lossy();
-        let trimmed = text.trim_end_matches(|c| c == '/' || c == '\\');
+        let trimmed = text.trim_end_matches(['/', '\\']);
         if trimmed.is_empty() {
             return (PathBuf::from(std::path::MAIN_SEPARATOR.to_string()), String::new());
         }
-        match trimmed.rfind(|c| c == '/' || c == '\\') {
+        match trimmed.rfind(['/', '\\']) {
             Some(index) => {
                 let parent = if index == 0 { &trimmed[..1] } else { &trimmed[..index] };
                 (PathBuf::from(parent), trimmed[index + 1..].to_string())
