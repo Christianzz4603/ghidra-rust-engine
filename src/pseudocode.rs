@@ -165,15 +165,15 @@ impl PseudocodeDecompiler {
         let mut source = program.decompile(entry.address)?;
         let mut truncated = false;
 
-        if let Some(max_bytes) = self.options.max_output_bytes {
-            if source.len() > max_bytes {
-                let mut boundary = max_bytes.min(source.len());
-                while !source.is_char_boundary(boundary) {
-                    boundary -= 1;
-                }
-                source.truncate(boundary);
-                truncated = true;
+        if let Some(max_bytes) = self.options.max_output_bytes
+            && source.len() > max_bytes
+        {
+            let mut boundary = max_bytes.min(source.len());
+            while !source.is_char_boundary(boundary) {
+                boundary -= 1;
             }
+            source.truncate(boundary);
+            truncated = true;
         }
 
         let lines = source
