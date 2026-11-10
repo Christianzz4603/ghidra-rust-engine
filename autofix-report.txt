@@ -1,74 +1,22 @@
-== CLIPPY REMAINING ==
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 29.25s
-== grep Usage: decompile ==
-src/ifacedecomp/printing.rs:163:        return Err(IfaceError::Parse("Usage: decompile <function>".to_string()));
-file=src/ifacedecomp/printing.rs line=163
-        .clone()
-        .ok_or_else(|| IfaceError::Core(Error::Lowlevel("missing load image".to_string())))?;
-    let buffer = loader.load(size, &offset)?;
-    let _ = file.write_all(&buffer);
-    Ok(())
-}
+== diff stat ==
+c2bf7f4
 
-fn perform_report(optr: &OutStream, res: i32, glb: &mut Architecture) {
-    if res < 0 {
-        out_write(optr, "Break at ");
-        let mut state = String::new();
-        if let Some(action) = glb.allacts.get_current() {
-            action.print_state(&mut state);
-        }
-        out_write(optr, &state);
-    } else {
-        out_write(optr, "Decompilation complete");
-        if res == 0 {
-            out_write(optr, " (no change)");
-        }
-    }
-    out_write(optr, "\n");
-}
-
-pub fn ifc_decompile(args: &mut IStream, status: &mut IfaceStatus) -> IfaceResult<()> {
-    let optr = status.optr.clone();
-    let mut requested_name = String::new();
-    args.ws();
-    args.read_word_into(&mut requested_name);
-    if requested_name.is_empty() {
-        return Err(IfaceError::Parse("Usage: decompile <function>".to_string()));
-    }
-
-    if !requested_name.is_empty() {
-        let dcp = decomp_data(status);
-        let glb = conf_mut(dcp, "No image loaded")?;
-        let delim = glb.get_scope_delimiter();
-        let mut basename = String::new();
-        let symboltab = symbol_table(glb)?;
-        let Some(scope) = symboltab.resolve_scope_from_symbol_name(&requested_name, &delim, &mut basename, None) else {
-            return Err(IfaceError::Execution(format!("Unknown function: {requested_name}")));
-        };
-        let Some(sym) = symboltab.scope_query_function_by_name(scope, &basename) else {
-            return Err(IfaceError::Execution(format!("Unknown function: {requested_name}")));
-        };
-        dcp.fd = Some(sym);
-== git log -S ==
-2effb59 2026-10-31 Add command usage hints and cwd-independent startup
-== boolless.xml ==
-<decompilertest>
-  <!--
-     Function accessing a boolean test through the high-bit of a status register via INT_SRIGHT.
-  -->
-<binaryimage arch="8051:BE:16:default:default">
-<bytechunk space="CODE" offset="0xa000">
-e5
-52b40b005002740122
-</bytechunk>
-<symbol space="CODE" offset="0xa000" name="boolless"/>
-</binaryimage>
-<script>
-  <com>lo fu boolless</com>
-  <com>dec</com>
-  <com>print C</com>
-  <com>quit</com>
-</script>
-<stringmatch name="Boolean thru Less-than #1" min="1" max="1">if \(uINTMEM52 &lt; 0xb\)</stringmatch>
-<stringmatch name="Boolean thru Less-than #2" min="0" max="0">&lt;&lt; 7</stringmatch>
-</decompilertest>
+ src/ifacedecomp/printing.rs | 4 ----
+ 1 file changed, 4 deletions(-)
+== Usage: lines added by 2effb59 ==
+18:+        return Err(IfaceError::Parse("Usage: open <file> (or: load file <file>)".to_string()));
+31:+        return Err(IfaceError::Parse("Usage: addpath <directory>".to_string()));
+44:+        return Err(IfaceError::Parse("Usage: save <file>".to_string()));
+52:+        return Err(IfaceError::Parse("Usage: save <file>".to_string()));
+76:+        return Err(IfaceError::Parse("Usage: restore <file>".to_string()));
+95:+        return Err(IfaceError::Parse("Usage: source <file>".to_string()));
+104:+        return Err(IfaceError::Parse("Usage: parse file <file>".to_string()));
+115:+        return Err(IfaceError::Parse("Usage: select <function> (or: load function <function>)".to_string()));
+129:+        return Err(IfaceError::Parse("Usage: decompile <function>".to_string()));
+== clippy ==
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 30.16s
+== datatests summary ==
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.69s
+== datatests parse errors ==
+== lib tests ==
+test result: ok. 113 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
