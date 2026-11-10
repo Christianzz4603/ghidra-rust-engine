@@ -11,7 +11,7 @@ permissions:
 jobs:
   autofix:
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
         with:
@@ -25,25 +25,23 @@ jobs:
           set +e
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          if ! grep -q 'allow(dead_code)' examples/webui.rs; then
-            sed -i 's/^fn main() {$/#[allow(dead_code)]\nfn main() {/' examples/webui.rs
-          fi
+          perl -0pi -e 's/    if requested_name\.is_empty\(\) \{\n        return Err\(IfaceError::Parse\("Usage: decompile <function>"\.to_string\(\)\)\);\n    \}\n\n//' src/ifacedecomp/printing.rs
           cargo fmt
           git add -A -- src tests examples
-          git commit -m "Allow dead_code on webui example main (it is included as a module by another example)" && git push
+          git commit -m "Allow 'decompile' with no argument (regression from usage hints commit)" && git push
           {
-            echo "== CLIPPY REMAINING =="
-            cargo clippy --all-targets --message-format=short -- -D warnings 2>&1 | grep -E "^(src|tests|examples).*(error|warning)|could not compile|Finished" | head -30
-            echo "== grep Usage: decompile =="
-            grep -rn 'Usage: decompile' src | head
-            F=$(grep -rln 'Usage: decompile' src | head -1)
-            L=$(grep -n 'Usage: decompile' "$F" | head -1 | cut -d: -f1)
-            echo "file=$F line=$L"
-            sed -n "$((L-30)),$((L+15))p" "$F"
-            echo "== git log -S =="
-            git log --format='%h %ad %s' --date=short -S'Usage: decompile <function>' -- src | head
-            echo "== boolless.xml =="
-            head -c 1500 tests/data/datatests/boolless.xml | cut -c1-200
+            echo "== diff stat =="
+            git show --stat --format=%h HEAD | tail -5
+            echo "== Usage: lines added by 2effb59 =="
+            git show 2effb59 -- src | grep -n '^[+-].*Usage:' | cut -c1-200 | head -60
+            echo "== clippy =="
+            cargo clippy --all-targets --message-format=short -- -D warnings 2>&1 | grep -E "^(src|tests|examples).*(error|warning)|could not compile|Finished" | head -20
+            echo "== datatests summary =="
+            cargo test --test datatests 2>&1 | grep -E "^Total:|^test result|^FAIL" | cut -c1-220 | head -40
+            echo "== datatests parse errors =="
+            DATATESTS_CONSOLE=1 cargo test --test datatests -- --nocapture 2>&1 | grep -E "Command parsing error|Function ERROR|^Error:" | sed 's#/home/runner[^ ]*##' | sort | uniq -c | sort -rn | head -20
+            echo "== lib tests =="
+            cargo test --lib 2>&1 | grep -E "^test result|FAILED|failed" | head -10
           } > autofix-report.txt 2>&1
           git add -f autofix-report.txt
           git commit -m "Update autofix report (temporary)"
