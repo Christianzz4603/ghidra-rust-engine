@@ -51,6 +51,7 @@ pub mod ghidra_worker;
 pub mod globalcontext;
 pub mod grammar;
 pub mod graph;
+pub mod graph_signature;
 pub mod heritage;
 pub mod ifacedecomp;
 pub mod inject_sleigh;
