@@ -64,6 +64,5 @@ and provenance:
 ## Compatibility boundary
 
 The backend supplies Ghidra-derived language semantics and native decompilation.
-This project layers analysis and UX on top. Proprietary Hex-Rays/IDA internals are
-not reproduced, and optimized machine code does not retain enough information to
-recover every original source-level name, type, or construct.
+This project layers analysis and UX on top. Optimized machine code does not retain
+enough information to recover every original source-level name, type, or construct.
