@@ -18,7 +18,7 @@ Ghidra's Java-facing host integration and development utilities.
 | SLEIGH decoder and compiled SLA loading | sleigh, sleighbase, slghsymbol, slghpattern, slghpatexpress, semantics, pcodeparse/*, pcodecompile, slaformat, compression, context | Runtime equivalents present |
 | Filesystem resource manager | filemanage | Rust implementation integrated into SLEIGH language discovery |
 | FLIRT-style signatures | flirt | External FLIRT signature matching; not Ghidra graph signatures |
-| Ghidra graph-based function signatures | signature | Initial independent implementation: operation, block-shape, call-shape, normalized-constant and linear def-use features; bounded binary format and weighted similarity. Not yet exact Ghidra feature parity |
+| Ghidra graph-based function signatures | graph_signature (faithful port of signature.cc/.hh), signature (older linear implementation) | `graph_signature` ports upstream's SSA/CFG feature traversal, noise removal, hashing and XML encoding. Hash primitives are verified bit-for-bit against upstream C++; end-to-end parity on real functions is not yet verified. `signature` remains the independent linear variant |
 | Dynamic rule compiler and unification | dynamic, modelrules, ruleaction | Existing runtime/rule infrastructure; complete Ghidra rule compiler and unification DSL remain unverified/missing |
 | SLEIGH source compiler | pcodecompile and parser components | Runtime/compiled-SLA support exists; full slgh_compile/slghparse/slghscan source compiler pipeline remains missing |
 | Ghidra Java/native host bridge | integration/ghidra-scripts/DecompileWithRustEngine.java; ghidra_host | Initial Script Manager bridge plus bounded JSON-lines protocol, persistent worker executable and lazy executable-block decompilation; Java client transport and complete Ghidra database hydration remain missing |
@@ -42,8 +42,10 @@ The Rust side now has a versioned, bounded JSON-lines protocol model (`src/ghidr
 
 ## Highest-value remaining gaps
 
-1. Exact Ghidra graph signatures: compare feature traversal, settings, hashes and XML
-   serialization against upstream signature.cc/.hh and signature_ghidra.cc/.hh.
+1. Graph signature end-to-end validation: `graph_signature` now ports signature.cc/.hh, with
+   `hash_mixin` and the overall-hash fold checked against upstream C++. Remaining: run both
+   implementations over identical decompiled functions and diff the feature vectors, and port
+   signature_ghidra.cc/.hh (the Ghidra-host adapter).
 2. Dynamic rule compiler and unification: complete parser/compiler semantics and
    bounded rule execution corresponding to rulecompile.cc/.hh and unify.cc/.hh.
 3. SLEIGH source compiler: implement source parsing and compilation, not only SLA loading.
@@ -54,7 +56,19 @@ The Rust side now has a versioned, bounded JSON-lines protocol model (`src/ghidr
 6. Performance/robustness evidence: benchmark representative binaries, profile phases,
    fuzz parsers/decoders and retain minimized regression cases.
 
-## Signature subsystem limitations
+## Graph signature port (`graph_signature`)
+
+`src/graph_signature.rs` is a line-by-line port of upstream `signature.cc`/`signature.hh`
+operating on `Funcdata`. Verified so far: it compiles, passes rustfmt and clippy, and its hash
+primitives (`hash_mixin`, the overall-hash fold) match values produced by compiling upstream's own
+`crc32.cc` and `hash_mixin` with g++. Not yet verified: the full traversal (noise removal via the
+dominator tree, iterative hashing, block features) against upstream output on real functions, because
+that needs a differential harness running both decompilers over the same binary. Treat feature
+vectors as unvalidated until that harness exists. Deliberate deviation: the global static
+`SigManager::settings` is an explicit constructor argument (`DEFAULT_SETTINGS` is upstream's suggested
+value).
+
+## Signature subsystem limitations (older linear `signature` module)
 
 The Rust signature module is a deterministic, bounded first implementation inspired by
 Ghidra's feature-signature model. It hashes normalized P-code operation shapes, block
