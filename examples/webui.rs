@@ -12,7 +12,7 @@ const PAGE: &str = r###"<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Ghidra Rust Engine</title>
+<title>Reverse++</title>
 <style>
 :root{color-scheme:dark;--bg:#101216;--panel:#171b22;--line:#292f39;--muted:#8993a3;--text:#e8edf5;--green:#8bd49c;--blue:#83b7f5}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:14px system-ui, sans-serif}
@@ -33,7 +33,7 @@ button{border:1px solid #385c48;background:#20392b;color:#b8f0c7;padding:9px 12p
 @media(max-width:650px){main{grid-template-columns:145px 1fr}.open{padding:8px}.fn{padding:8px;font-size:11px}.tabs{overflow:auto}.tab{white-space:nowrap;padding:7px 9px}#viewer{padding:10px}}
 </style></head>
 <body>
-<header><span class="logo"><i class="dot"></i>GHIDRA RUST ENGINE</span><span id="binary">No binary loaded</span><span id="status">Local analysis workspace</span></header>
+<header><span class="logo"><i class="dot"></i>REVERSE++</span><span id="binary">No binary loaded</span><span id="status">Local analysis workspace</span></header>
 <main><aside><div class="open"><input id="path" placeholder="/sdcard/home/libminecraftpe.so"><button id="load">Open binary</button></div>
 <div class="search"><input id="filter" placeholder="Filter functions..."></div><div class="section">Functions</div><div id="functions"><div class="placeholder">Open a binary to begin.</div></div></aside>
 <section class="content"><nav class="tabs"><button class="tab active" data-view="decompile">Pseudocode</button><button class="tab" data-view="assembly">Disassembly</button><button class="tab" data-view="hex">Hex</button></nav>
@@ -311,7 +311,7 @@ pub fn run(port: u16) -> std::io::Result<()> {
     let address = format!("127.0.0.1:{port}");
     let listener = TcpListener::bind(&address)?;
     let state: SharedProgram = Arc::new(Mutex::new(None));
-    println!("Ghidra Rust Engine Web UI");
+    println!("Reverse++ Web UI");
     println!("Open http://{address} in your Android browser");
     println!("This server only listens on localhost.");
     for connection in listener.incoming() {

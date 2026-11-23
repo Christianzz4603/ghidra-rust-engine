@@ -113,10 +113,10 @@ fn setup() -> Result<(), String> {
     if !settings.exists() {
         fs::write(
             &settings,
-            "# Ghidra Rust Engine CLI settings\n# Output directory used by your analysis workflows.\noutput_dir = \"output\"\n",
+            "# Reverse++ CLI settings\n# Output directory used by your analysis workflows.\noutput_dir = \"output\"\n",
         ).map_err(|err| err.to_string())?;
     }
-    println!("Ghidra Rust Engine {} is initialized.", version());
+    println!("Reverse++ {} is initialized.", version());
     println!("Config: {}", config.display());
     println!("Workspace: {}", data.display());
     println!("This does not modify your shell PATH; place the executable in a directory already on PATH.");
@@ -132,7 +132,7 @@ fn print_update_status() {
                 println!("Update available: {} -> {}", version(), latest.trim_start_matches('v'));
                 println!("Release: {RELEASES_URL}");
             } else {
-                println!("Ghidra Rust Engine {} is up to date.", version());
+                println!("Reverse++ {} is up to date.", version());
             }
         }
         None => {
@@ -148,7 +148,7 @@ fn main() -> ExitCode {
         .get(1)
         .is_some_and(|arg| arg == "--help" || arg == "-h" || arg == "help")
     {
-        println!("Ghidra Rust Engine {}", version());
+        println!("Reverse++ {}", version());
         println!(
             "Usage: ghidra-rust_cli [--version | --help | setup | update | web [--port=PORT] | reconstruct <binary> <address>]"
         );

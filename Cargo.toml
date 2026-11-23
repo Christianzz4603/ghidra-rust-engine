@@ -1,6 +1,6 @@
 [package]
 name = "ghidra-decompiler"
-description = "Pure Rust port of the Ghidra decompiler"
+description = "Reverse++: a Ghidra-based reverse-engineering engine in pure Rust"
 version = "2.1.0"
 edition = "2024"
 rust-version = "1.95"

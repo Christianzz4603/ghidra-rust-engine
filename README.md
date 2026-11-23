@@ -1,8 +1,12 @@
 DISCLAIMER: This was automatically ported by an agent from Ghidra's C++ source code into Rust.
 
-# ghidra-decompiler
+# Reverse++
 
-A pure Rust port of the Ghidra decompiler (Ghidra 12.2, `Ghidra/Features/Decompiler/src/decompile/cpp`).
+Reverse++ is a Ghidra-based reverse-engineering engine written in pure Rust: no C, C++ or Java dependencies. It is built on a faithful port of the Ghidra decompiler and SLEIGH processor specifications, with extra analysis, container-format readers (ELF/PE/Mach-O, Android `.dex`/APK, Java `.class`/`.jar`, Python `.pyc`) and a CLI/web workspace on top.
+
+Reverse++ is an independent project based on [Ghidra](https://github.com/NationalSecurityAgency/ghidra) (Apache-2.0). It is not affiliated with or endorsed by the NSA or the Ghidra project; see `NOTICE` and `LICENSE`. The crate and binary names (`ghidra-decompiler`, `ghidra-rust_cli`) are unchanged for now so existing builds, release assets and the `update` command keep working.
+
+The decompiler core is a port of the Ghidra decompiler (Ghidra 12.2, `Ghidra/Features/Decompiler/src/decompile/cpp`).
 It has no C, C++ or Java dependencies. The output is textually identical to the C++ decompiler on the
 test corpora in `tests/data`.
 
@@ -334,7 +338,7 @@ Generated files:
 - `data.csv`: known global data and import/GOT symbols.
 - `strings.csv`: printable NUL-terminated UTF-8 strings from recognized string sections.
 
-This is a growing static-analysis pipeline, not yet equivalent to IDA Pro. Unreferenced functions, functions reachable only through unresolved indirect calls, non-UTF-8/UTF-16 strings, complex jump tables, and code hidden behind unusual control-flow patterns may still be missed. The output is best-effort and does not claim every executable byte has been classified.
+This is a growing static-analysis pipeline. Unreferenced functions, functions reachable only through unresolved indirect calls, non-UTF-8/UTF-16 strings, complex jump tables, and code hidden behind unusual control-flow patterns may still be missed. The output is best-effort and does not claim every executable byte has been classified.
 
 ## Tests
 
