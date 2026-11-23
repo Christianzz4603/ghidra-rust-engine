@@ -92,6 +92,7 @@ pub mod prettyprint;
 pub mod printc;
 pub mod printjava;
 pub mod printlanguage;
+pub mod pyc;
 pub mod program;
 pub mod pseudocode;
 pub mod rangemap;
