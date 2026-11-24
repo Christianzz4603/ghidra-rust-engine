@@ -2,7 +2,7 @@ DISCLAIMER: This was automatically ported by an agent from Ghidra's C++ source c
 
 # Reverse++
 
-Reverse++ is a Ghidra-based reverse-engineering engine written in pure Rust: no C, C++ or Java dependencies. It is built on a faithful port of the Ghidra decompiler and SLEIGH processor specifications, with extra analysis, container-format readers (ELF/PE/Mach-O, Android `.dex`/APK, Java `.class`/`.jar`, Python `.pyc`) and a CLI/web workspace on top.
+Reverse++ is a Ghidra-based reverse-engineering engine written in pure Rust: no C, C++ or Java dependencies. It is built on a faithful port of the Ghidra decompiler and SLEIGH processor specifications, with extra analysis, container-format readers (ELF/PE/Mach-O, Android `.dex`/APK, Java `.class`/`.jar`, Python `.pyc`) and a headless CLI on top.
 
 Reverse++ is an independent project based on [Ghidra](https://github.com/NationalSecurityAgency/ghidra) (Apache-2.0). It is not affiliated with or endorsed by the NSA or the Ghidra project; see `NOTICE` and `LICENSE`. The crate and binary names (`ghidra-decompiler`, `ghidra-rust_cli`) are unchanged for now so existing builds, release assets and the `update` command keep working.
 
