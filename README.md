@@ -193,13 +193,9 @@ cargo build --profile release-small --no-default-features --features mobile --ex
 Use the ordinary `--release` profile when maximum decompilation speed is the priority. Desktop users can keep the default `--release` build; no processor support is removed from the desktop defaults.
 
 
-## Standalone browser workspace (Android / Termux)
+## Interface
 
-The browser workspace is compiled directly into the single `ghidra-rust_cli` executable. No `install-termux.sh`, `termux-open`, Node.js, XFCE, X11, or separate web UI binary is required.
-
-Start it with `./ghidra-rust_cli web`, then manually open `http://127.0.0.1:8080` in Firefox or another browser. Use `./ghidra-rust_cli web --port=9090` to choose another port. The server binds only to `127.0.0.1` and is not exposed to your Wi-Fi network by default.
-
-The normal interactive console remains available by running `./ghidra-rust_cli`.
+Reverse++ is a headless, command-line program, like Ghidra's headless mode. Run `ghidra-rust_cli` for the interactive console, or use the subcommands listed by `--help`. A native cross-platform desktop app is planned; there is no web or browser interface.
 
 ## Native library builds and signing
 
@@ -413,7 +409,7 @@ Every push to `master` triggers a cross-platform release build. The workflow pub
 
 Standalone, uncompressed CLI executables are provided directly as GitHub Release assets for Android `armeabi-v7a`, `arm64-v8a`, `x86`, and `x86_64`; Linux x86_64 and ARM64; Windows x64; and macOS Intel and Apple Silicon. Choose the asset matching your operating system and CPU architecture. Android assets are named `ghidra-rust_cli-Android-<ABI>`; other platforms use `ghidra-rust_cli-<platform>`. No ZIP, TAR, installer, or Termux setup script is needed.
 
-On Android/Termux, download the ARM64 executable, then run `chmod +x ghidra-rust_cli-Android-arm64-v8a` and `./ghidra-rust_cli-Android-arm64-v8a`. Launch the browser interface with `./ghidra-rust_cli-Android-arm64-v8a web`. The update notice is informational and points to GitHub Releases; it never replaces the running executable automatically.
+On Android/Termux, download the ARM64 executable, then run `chmod +x ghidra-rust_cli-Android-arm64-v8a` and `./ghidra-rust_cli-Android-arm64-v8a`. The update notice is informational and points to GitHub Releases; it never replaces the running executable automatically.
 
 
 ### Release performance
