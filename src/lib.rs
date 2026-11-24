@@ -84,6 +84,7 @@ pub mod orderedindex;
 pub mod overrides;
 pub mod paramid;
 pub mod partmap;
+pub mod patch;
 pub mod pcodecompile;
 pub mod pcodeinject;
 pub mod pcodeparse;
