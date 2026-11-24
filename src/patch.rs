@@ -52,6 +52,8 @@ pub struct Segment {
     pub vsize: u64,
     pub file_offset: u64,
     pub file_size: u64,
+    /// Mapped as executable (ELF `PF_X`, PE code/execute section, Mach-O `VM_PROT_EXECUTE`).
+    pub executable: bool,
 }
 
 /// One journal entry.
@@ -130,12 +132,14 @@ fn parse_elf(b: &[u8]) -> Result<(PatchArch, Vec<Segment>)> {
                 rd32(b, p + 20)? as u64,
             )
         };
+        let flags = rd32(b, if is64 { p + 4 } else { p + 24 })?;
         segments.push(Segment {
             name: format!("LOAD{}", segments.len()),
             vaddr,
             vsize: memsz,
             file_offset: offset,
             file_size: filesz,
+            executable: flags & 1 != 0,
         });
     }
     if segments.is_empty() {
@@ -173,6 +177,7 @@ fn parse_pe(b: &[u8]) -> Result<(PatchArch, Vec<Segment>, usize)> {
         vsize: size_of_headers,
         file_offset: 0,
         file_size: size_of_headers.min(b.len() as u64),
+        executable: false,
     }];
     let table = opt + opt_size;
     for i in 0..nsec {
@@ -189,6 +194,7 @@ fn parse_pe(b: &[u8]) -> Result<(PatchArch, Vec<Segment>, usize)> {
             vsize: vsize.max(raw_size),
             file_offset: raw_ptr,
             file_size: raw_size.min(vsize.max(raw_size)),
+            executable: rd32(b, s + 36)? & 0x2000_0020 != 0,
         });
     }
     Ok((arch, segments, checksum_offset))
@@ -232,6 +238,7 @@ fn parse_macho(b: &[u8]) -> Result<(PatchArch, Vec<Segment>)> {
                 vsize: rd64(b, p + 32)?,
                 file_offset: rd64(b, p + 40)?,
                 file_size: rd64(b, p + 48)?,
+                executable: rd32(b, p + 60)? & 4 != 0,
             });
         } else if cmd == 1 && !is64 {
             segments.push(Segment {
@@ -240,6 +247,7 @@ fn parse_macho(b: &[u8]) -> Result<(PatchArch, Vec<Segment>)> {
                 vsize: rd32(b, p + 28)? as u64,
                 file_offset: rd32(b, p + 32)? as u64,
                 file_size: rd32(b, p + 36)? as u64,
+                executable: rd32(b, p + 44)? & 4 != 0,
             });
         }
         p += size;
@@ -253,28 +261,45 @@ fn parse_macho(b: &[u8]) -> Result<(PatchArch, Vec<Segment>)> {
 impl PatchableImage {
     /// Detects the container format from magic bytes and builds the segment map.
     pub fn parse(bytes: Vec<u8>) -> Result<Self> {
+        Self::try_parse(bytes).map_err(|(error, _)| error)
+    }
+
+    /// Like [`PatchableImage::parse`], but hands the bytes back on failure so the caller can reuse them.
+    pub fn try_parse(bytes: Vec<u8>) -> std::result::Result<Self, (Error, Vec<u8>)> {
+        match Self::parse_inner(&bytes) {
+            Ok((format, arch, segments, pe_checksum_offset)) => Ok(PatchableImage {
+                format,
+                arch,
+                segments,
+                bytes,
+                journal: Vec::new(),
+                pe_checksum_offset,
+            }),
+            Err(error) => Err((error, bytes)),
+        }
+    }
+
+    /// Gives the file bytes back (including any applied patches).
+    pub fn into_bytes(self) -> Vec<u8> {
+        self.bytes
+    }
+
+    fn parse_inner(bytes: &[u8]) -> Result<(ImageFormat, PatchArch, Vec<Segment>, Option<usize>)> {
         let (format, arch, segments, pe_checksum_offset) = if bytes.starts_with(b"\x7fELF") {
-            let (arch, segments) = parse_elf(&bytes)?;
+            let (arch, segments) = parse_elf(bytes)?;
             (ImageFormat::Elf, arch, segments, None)
         } else if bytes.starts_with(b"MZ") {
-            let (arch, segments, checksum) = parse_pe(&bytes)?;
+            let (arch, segments, checksum) = parse_pe(bytes)?;
             (ImageFormat::Pe, arch, segments, Some(checksum))
-        } else if matches!(rd32(&bytes, 0), Ok(0xFEED_FACF) | Ok(0xFEED_FACE)) {
-            let (arch, segments) = parse_macho(&bytes)?;
+        } else if matches!(rd32(bytes, 0), Ok(0xFEED_FACF) | Ok(0xFEED_FACE)) {
+            let (arch, segments) = parse_macho(bytes)?;
             (ImageFormat::MachO, arch, segments, None)
         } else {
             return Err(fail(
                 "unrecognized format; use PatchableImage::raw for headerless images",
             ));
         };
-        Ok(PatchableImage {
-            format,
-            arch,
-            segments,
-            bytes,
-            journal: Vec::new(),
-            pe_checksum_offset,
-        })
+        Ok((format, arch, segments, pe_checksum_offset))
     }
 
     pub fn open(path: impl AsRef<Path>) -> Result<Self> {
@@ -294,6 +319,7 @@ impl PatchableImage {
                 vsize: len,
                 file_offset: 0,
                 file_size: len,
+                executable: true,
             }],
             bytes,
             journal: Vec::new(),

@@ -81,6 +81,8 @@ impl Program {
         // scanning across executable sections so otherwise-unreferenced functions
         // can still be recovered.
         seeds.extend(self.arm64_prologue_seeds()?);
+        // Function starts from .eh_frame / .pdata / LC_FUNCTION_STARTS / x86 prologue patterns.
+        seeds.extend(self.start_hints.iter().copied());
         seeds.sort_unstable();
         seeds.dedup();
         seeds.truncate(MAX_DISCOVERED_FUNCTIONS);

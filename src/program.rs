@@ -67,6 +67,9 @@ pub struct Program {
     string_sections: Vec<std::ops::Range<u64>>,
     code_sections: Vec<std::ops::Range<u64>>,
     entry: Option<u64>,
+    /// Function starts recovered at load time from container metadata (`.eh_frame`, `.pdata`,
+    /// `LC_FUNCTION_STARTS`) and byte patterns; used as extra discovery seeds.
+    start_hints: Vec<u64>,
     // Translation is immutable for a loaded image. Shared cached streams let
     // intelligence, SSA, and reconstruction reuse expensive P-code decoding.
     pcode_cache: RefCell<PcodeCache>,
@@ -433,12 +436,21 @@ impl Program {
                 MAX_INPUT_IMAGE_BYTES
             )));
         }
+        let (bytes, start_hints) = match crate::patch::PatchableImage::try_parse(bytes) {
+            Ok(image) => {
+                let hints = crate::funcstarts::seeds(&image);
+                (image.into_bytes(), hints)
+            }
+            Err((_, bytes)) => (bytes, Vec::new()),
+        };
         let symbols = match loading {
             SymbolLoading::Loader => SymbolInput::Loader,
             SymbolLoading::Full => SymbolInput::Full(Box::new(symbols::image_symbols(&bytes))),
         };
         let builder = ObjectArchitecture::with_bytes(name, language.unwrap_or("default"), bytes);
-        Program::initialize(Arc::new(builder), symbols)
+        let mut program = Program::initialize(Arc::new(builder), symbols)?;
+        program.start_hints = start_hints;
+        Ok(program)
     }
 
     pub fn from_raw_bytes(bytes: Vec<u8>, language: &str, base_address: u64) -> Result<Program> {
@@ -477,6 +489,7 @@ impl Program {
             string_sections: Vec::new(),
             code_sections: Vec::new(),
             entry: None,
+            start_hints: Vec::new(),
             pcode_cache: RefCell::new(PcodeCache::default()),
         };
         match symbols {

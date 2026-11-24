@@ -46,6 +46,7 @@ pub mod filemanage;
 pub mod flirt;
 pub mod float;
 pub mod flow;
+pub mod funcstarts;
 pub mod fspec;
 pub mod funcdata;
 pub mod ghidra_host;
