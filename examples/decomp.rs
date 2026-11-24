@@ -146,9 +146,7 @@ fn main() -> ExitCode {
         .is_some_and(|arg| arg == "--help" || arg == "-h" || arg == "help")
     {
         println!("Reverse++ {}", version());
-        println!(
-            "Usage: ghidra-rust_cli [--version | --help | setup | update | reconstruct <binary> <address>]"
-        );
+        println!("Usage: ghidra-rust_cli [--version | --help | setup | update | reconstruct <binary> <address>]");
         println!();
         println!("Run without arguments to open the interactive decompiler console.");
         println!("Run `ghidra-rust_cli reconstruct <binary> <address>` for pseudocode and reconstruction evidence.");
