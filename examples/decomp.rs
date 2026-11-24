@@ -111,7 +111,8 @@ fn setup() -> Result<(), String> {
         fs::write(
             &settings,
             "# Reverse++ CLI settings\n# Output directory used by your analysis workflows.\noutput_dir = \"output\"\n",
-        ).map_err(|err| err.to_string())?;
+        )
+        .map_err(|err| err.to_string())?;
     }
     println!("Reverse++ {} is initialized.", version());
     println!("Config: {}", config.display());
