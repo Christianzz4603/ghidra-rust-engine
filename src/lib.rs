@@ -54,6 +54,7 @@ pub mod grammar;
 pub mod graph;
 pub mod graph_signature;
 pub mod heritage;
+pub mod idastyle;
 pub mod ifacedecomp;
 pub mod inject_sleigh;
 pub mod intelligence;

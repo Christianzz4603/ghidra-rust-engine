@@ -658,6 +658,11 @@ pub fn ifc_analyze_all(args: &mut IStream, status: &mut IfaceStatus) -> IfaceRes
         .map_err(|err| IfaceError::Execution(format!("Cannot create {}: {err}", asm_path.display())))?;
     let mut csv_file = std::fs::File::create(&csv_path)
         .map_err(|err| IfaceError::Execution(format!("Cannot create {}: {err}", csv_path.display())))?;
+    let lst_path = directory.join(format!("{binary_name}.lst"));
+    let ida_c_path = directory.join(format!("{binary_name}.ida.c"));
+    let mut ida_c_file = std::fs::File::create(&ida_c_path)
+        .map_err(|err| IfaceError::Execution(format!("Cannot create {}: {err}", ida_c_path.display())))?;
+    let mut listing_functions: Vec<crate::idastyle::ListingFunction> = Vec::new();
 
     out_write(&optr, &format!("Loading program metadata for {filename}...\n"));
     let mut program = Program::open(std::path::Path::new(&filename), None)
@@ -1023,7 +1028,14 @@ pub fn ifc_analyze_all(args: &mut IStream, status: &mut IfaceStatus) -> IfaceRes
                             .map_err(|err| IfaceError::Execution(err.to_string()))?;
                     }
                 }
+                let mut listing_instructions = Vec::new();
                 for instruction in report.instructions {
+                    listing_instructions.push(crate::idastyle::ListingInsn {
+                        address: instruction.address,
+                        bytes: instruction.bytes.clone(),
+                        mnemonic: instruction.mnemonic.clone(),
+                        operands: instruction.operands.clone(),
+                    });
                     let bytes = instruction
                         .bytes
                         .iter()
@@ -1037,6 +1049,11 @@ pub fn ifc_analyze_all(args: &mut IStream, status: &mut IfaceStatus) -> IfaceRes
                     )
                     .map_err(|err| IfaceError::Execution(err.to_string()))?;
                 }
+                listing_functions.push(crate::idastyle::ListingFunction {
+                    name: name.clone(),
+                    start: address,
+                    instructions: listing_instructions,
+                });
             }
             Err(err) => {
                 skipped += 1;
@@ -1050,6 +1067,13 @@ pub fn ifc_analyze_all(args: &mut IStream, status: &mut IfaceStatus) -> IfaceRes
             Ok(text) => {
                 writeln!(c_file, "\n/* {name} @ {address:#x} */")
                     .and_then(|_| c_file.write_all(text.as_bytes()))
+                    .map_err(|err| IfaceError::Execution(err.to_string()))?;
+                let restyled = crate::idastyle::restyle_pseudocode(
+                    &text,
+                    crate::idastyle::PseudocodeStyle::for_language(program.language_id()),
+                );
+                writeln!(ida_c_file, "\n/* {name} @ {address:#x} */")
+                    .and_then(|_| ida_c_file.write_all(restyled.as_bytes()))
                     .map_err(|err| IfaceError::Execution(err.to_string()))?;
                 processed += 1;
                 decompile_ok += 1;
@@ -1079,7 +1103,32 @@ pub fn ifc_analyze_all(args: &mut IStream, status: &mut IfaceStatus) -> IfaceRes
         }
     }
     c_file.flush().map_err(|err| IfaceError::Execution(err.to_string()))?;
+    ida_c_file
+        .flush()
+        .map_err(|err| IfaceError::Execution(err.to_string()))?;
     asm_file.flush().map_err(|err| IfaceError::Execution(err.to_string()))?;
+    {
+        use crate::idastyle::{ListingOptions, ListingXref, XrefKind, render_listing};
+        use crate::intelligence::ReferenceKind;
+        let listing_xrefs: Vec<ListingXref> = intelligence
+            .cross_references
+            .iter()
+            .map(|reference| ListingXref {
+                from: reference.from,
+                to: reference.to,
+                kind: match reference.kind {
+                    ReferenceKind::Call => XrefKind::Call,
+                    ReferenceKind::Branch => XrefKind::Jump,
+                    ReferenceKind::Read => XrefKind::Read,
+                    ReferenceKind::Write => XrefKind::Write,
+                    ReferenceKind::Data => XrefKind::Offset,
+                },
+            })
+            .collect();
+        let options = ListingOptions::for_language(program.language_id());
+        std::fs::write(&lst_path, render_listing(&listing_functions, &listing_xrefs, &options))
+            .map_err(|err| IfaceError::Execution(format!("Cannot write {}: {err}", lst_path.display())))?;
+    }
     csv_file.flush().map_err(|err| IfaceError::Execution(err.to_string()))?;
     xrefs_file
         .flush()
