@@ -17,6 +17,7 @@ pub mod analysis;
 pub mod architecture;
 pub mod arena;
 pub mod bitfield;
+pub mod binscan;
 pub mod block;
 pub mod blockaction;
 pub mod callgraph;
