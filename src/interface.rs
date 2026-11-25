@@ -777,7 +777,17 @@ impl IfaceStatus {
         let mut first = 0usize;
         let mut last = self.comlist.len();
         let mut is = IStream::new(&line);
-        let matched = self.expand_com(&mut fullcommand, &mut is, &mut first, &mut last);
+        let mut matched = self.expand_com(&mut fullcommand, &mut is, &mut first, &mut last);
+        if matched == 0
+            && let Some((index, rest)) = self.command_with_arguments(&line)
+        {
+            // "analyze <dir>" while "analyze range" also exists: the first word names a command by
+            // itself and the following words are its arguments, not a sub-command.
+            first = index;
+            fullcommand = self.command(index).base().com.clone();
+            is = rest;
+            matched = 1;
+        }
         if matched == 0 {
             out_write(&self.optr, "ERROR: Invalid command\n");
             return Ok(false);
@@ -797,6 +807,36 @@ impl IfaceStatus {
         let result = command.execute(&mut is, self);
         self.comlist[first] = Some(command);
         result.map(|_| true)
+    }
+
+    /// Finds the longest leading run of words that exactly names one registered command, so the
+    /// remaining words can be passed to it as arguments. Returns the command index and the
+    /// argument stream.
+    fn command_with_arguments(&self, line: &str) -> Option<(usize, IStream)> {
+        let mut probe = IStream::new(line);
+        let mut words: Vec<(String, usize)> = Vec::new();
+        let mut tok = String::new();
+        loop {
+            probe.ws();
+            if probe.eof() {
+                break;
+            }
+            probe.read_word_into(&mut tok);
+            words.push((tok.clone(), probe.position()));
+        }
+        for count in (1..words.len()).rev() {
+            let found = self.comlist.iter().position(|command| {
+                command.as_ref().is_some_and(|command| {
+                    let base = command.base().com.as_slice();
+                    base.len() == count && base.iter().zip(&words).all(|(a, (b, _))| a == b)
+                })
+            });
+            if let Some(index) = found {
+                let rest = line.get(words[count - 1].1..)?;
+                return Some((index, IStream::new(rest)));
+            }
+        }
+        None
     }
 
     fn restrict_com(&self, first: &mut usize, last: &mut usize, input: &[String]) {
@@ -1228,4 +1268,37 @@ pub fn ifc_echo(args: &mut IStream, status: &mut IfaceStatus) -> IfaceResult<()>
     text.push('\n');
     out_write(&status.fileoptr, &text);
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    static RUNS: AtomicUsize = AtomicUsize::new(0);
+
+    fn count(_: &mut IStream, _: &mut IfaceStatus) -> IfaceResult<()> {
+        RUNS.fetch_add(1, Ordering::SeqCst);
+        Ok(())
+    }
+
+    #[test]
+    fn command_that_prefixes_another_accepts_arguments() {
+        for line in ["analyze /out", "analyze range 1 2", "decompile all /out"] {
+            let optr = new_out_stream();
+            let mut status = IfaceStatus::new_commands("> ", optr.clone(), vec![line.to_string()]);
+            for words in [
+                &["analyze"][..],
+                &["analyze", "range"],
+                &["decompile"],
+                &["decompile", "all"],
+            ] {
+                status.register_com(Box::new(FunctionCommand::new("test", count, None)), words);
+            }
+            let before = RUNS.load(Ordering::SeqCst);
+            status.run_command().expect("command runs");
+            assert_eq!(RUNS.load(Ordering::SeqCst), before + 1, "{line}");
+            assert!(!optr.lock().unwrap().contains("Invalid command"), "{line}");
+        }
+    }
 }
