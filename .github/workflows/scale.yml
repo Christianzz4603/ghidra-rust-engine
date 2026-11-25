@@ -56,7 +56,7 @@ jobs:
           # taking the whole runner down.
           ulimit -v 6291456
           export REVERSEPP_STAGE_LOG=1
-          timeout 300m /usr/bin/time -v -o "$RUNNER_TEMP/time.txt" \
+          timeout ${{ matrix.size_mb == 10 && '20m' || '60m' }} /usr/bin/time -v -o "$RUNNER_TEMP/time.txt" \
             target/release/examples/decomp -i "$RUNNER_TEMP/script.txt" < /dev/null > "$RUNNER_TEMP/console.log" 2>&1
           status=$?
           echo "exit=$status seconds=$(( $(date +%s) - start ))" > "$RUNNER_TEMP/result.txt"
