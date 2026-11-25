@@ -160,12 +160,30 @@ impl Program {
     fn discover_from(&mut self, seeds: Vec<u64>) -> Result<()> {
         let mut pending = seeds;
         let mut visited = BTreeSet::new();
+        let mut logged = 0usize;
         while let Some(address) = pending.pop() {
             if visited.len() >= MAX_DISCOVERED_FUNCTIONS {
                 break;
             }
             if !visited.insert(address) || !self.is_code_address(address) {
                 continue;
+            }
+            if visited.len() >= logged + 2000 && std::env::var_os("REVERSEPP_STAGE_LOG").is_some() {
+                logged = visited.len();
+                let resident = std::fs::read_to_string("/proc/self/status")
+                    .ok()
+                    .and_then(|status| {
+                        status
+                            .lines()
+                            .find(|line| line.starts_with("VmRSS:"))
+                            .map(|line| line.trim_start_matches("VmRSS:").trim().to_string())
+                    })
+                    .unwrap_or_default();
+                eprintln!(
+                    "[discover] visited={} pending={} rss={resident}",
+                    visited.len(),
+                    pending.len()
+                );
             }
             let sym = self.discovered_function(address)?;
             let Some(facts) = self.flow_facts(sym)? else {
