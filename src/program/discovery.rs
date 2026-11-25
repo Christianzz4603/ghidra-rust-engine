@@ -161,6 +161,8 @@ impl Program {
         let mut pending = seeds;
         let mut visited = BTreeSet::new();
         let mut logged = 0usize;
+        let mut create_time = std::time::Duration::ZERO;
+        let mut flow_time = std::time::Duration::ZERO;
         while let Some(address) = pending.pop() {
             if visited.len() >= MAX_DISCOVERED_FUNCTIONS {
                 break;
@@ -180,13 +182,20 @@ impl Program {
                     })
                     .unwrap_or_default();
                 eprintln!(
-                    "[discover] visited={} pending={} rss={resident}",
+                    "[discover] visited={} pending={} rss={resident} create={:.1}s flow={:.1}s",
                     visited.len(),
-                    pending.len()
+                    pending.len(),
+                    create_time.as_secs_f64(),
+                    flow_time.as_secs_f64()
                 );
             }
+            let started = std::time::Instant::now();
             let sym = self.discovered_function(address)?;
-            let Some(facts) = self.flow_facts(sym)? else {
+            create_time += started.elapsed();
+            let started = std::time::Instant::now();
+            let facts = self.flow_facts(sym)?;
+            flow_time += started.elapsed();
+            let Some(facts) = facts else {
                 continue;
             };
             pending.extend(facts.call_targets);
