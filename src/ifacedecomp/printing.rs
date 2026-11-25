@@ -653,6 +653,24 @@ impl BoundedDiagnostics {
     }
 }
 
+/// Prints `label` and the resident memory to stderr when `REVERSEPP_STAGE_LOG` is set, so a run
+/// that dies can be traced to the stage it died in.
+fn stage_log(label: &str) {
+    if std::env::var_os("REVERSEPP_STAGE_LOG").is_none() {
+        return;
+    }
+    let resident = std::fs::read_to_string("/proc/self/status")
+        .ok()
+        .and_then(|status| {
+            status
+                .lines()
+                .find(|line| line.starts_with("VmRSS:"))
+                .map(|line| line.trim_start_matches("VmRSS:").trim().to_string())
+        })
+        .unwrap_or_default();
+    eprintln!("[stage] {label} rss={resident}");
+}
+
 pub fn ifc_analyze_all(args: &mut IStream, status: &mut IfaceStatus) -> IfaceResult<()> {
     let optr = status.optr.clone();
     let mut output_dir = String::new();
@@ -699,24 +717,30 @@ pub fn ifc_analyze_all(args: &mut IStream, status: &mut IfaceStatus) -> IfaceRes
     );
 
     out_write(&optr, &format!("Loading program metadata for {filename}...\n"));
+    stage_log("open program");
     let mut program = Program::open(std::path::Path::new(&filename), None)
         .map_err(|err| IfaceError::Execution(format!("Cannot open program for discovery: {}", err.explain())))?;
     out_write(
         &optr,
         "Discovering functions from entry point, symbols, and reachable code...\n",
     );
+    stage_log("discover functions");
     program
         .discover_functions()
         .map_err(|err| IfaceError::Execution(format!("Function discovery failed: {}", err.explain())))?;
+    stage_log("list functions");
     let functions = program
         .functions()
         .map_err(|err| IfaceError::Execution(format!("Cannot list functions: {}", err.explain())))?;
+    stage_log("data symbols");
     let data = program
         .data_symbols()
         .map_err(|err| IfaceError::Execution(format!("Cannot list data symbols: {}", err.explain())))?;
+    stage_log("strings");
     let strings = program
         .strings()
         .map_err(|err| IfaceError::Execution(format!("Cannot extract strings: {}", err.explain())))?;
+    stage_log("call graph");
     let calls = program
         .call_graph()
         .map_err(|err| IfaceError::Execution(format!("Cannot build call graph: {}", err.explain())))?;
@@ -729,6 +753,7 @@ pub fn ifc_analyze_all(args: &mut IStream, status: &mut IfaceStatus) -> IfaceRes
         "record,section_start,section_end,address,bytes,decoded_bytes,instructions,gaps"
     )
     .map_err(|err| IfaceError::Execution(err.to_string()))?;
+    stage_log("code section sweep");
     let code_coverage = program
         .scan_code_sections(|gap| {
             writeln!(coverage_file, "gap,,,{:#x},{},,,", gap.address, gap.length)
@@ -751,6 +776,7 @@ pub fn ifc_analyze_all(args: &mut IStream, status: &mut IfaceStatus) -> IfaceRes
     coverage_file
         .flush()
         .map_err(|err| IfaceError::Execution(err.to_string()))?;
+    stage_log("intelligence analysis");
     let intelligence = BinaryIntelligence::new(&mut program)
         .analyze_all()
         .map_err(|err| IfaceError::Execution(format!("Intelligence analysis failed: {}", err.explain())))?;
@@ -1010,6 +1036,7 @@ pub fn ifc_analyze_all(args: &mut IStream, status: &mut IfaceStatus) -> IfaceRes
     out_write(&optr, &format!("Analyzing {total} discovered function(s)...\n"));
     // Sizes first: the listing needs every function's range up front so each function can be
     // written as soon as it is disassembled, without keeping the instructions of the whole binary.
+    stage_log("function sizes");
     let sized: Vec<(_, Result<u64, Error>)> = functions
         .into_iter()
         .map(|function| {
@@ -1018,6 +1045,7 @@ pub fn ifc_analyze_all(args: &mut IStream, status: &mut IfaceStatus) -> IfaceRes
         })
         .collect();
     let listing_options = crate::idastyle::ListingOptions::for_language(program.language_id());
+    stage_log("listing context");
     let listing_context = {
         use crate::idastyle::{ListingContext, ListingXref, XrefKind};
         use crate::intelligence::ReferenceKind;
@@ -1045,6 +1073,7 @@ pub fn ifc_analyze_all(args: &mut IStream, status: &mut IfaceStatus) -> IfaceRes
             .collect();
         ListingContext::new(&ranges, &listing_xrefs, &listing_options)
     };
+    stage_log("per-function loop");
     for (function, size_result) in sized {
         let name = function.name;
         let address = function.address;

@@ -55,6 +55,7 @@ jobs:
           # Cap address space so a runaway allocation fails this step with a message instead of
           # taking the whole runner down.
           ulimit -v 6291456
+          export REVERSEPP_STAGE_LOG=1
           timeout 300m /usr/bin/time -v -o "$RUNNER_TEMP/time.txt" \
             target/release/examples/decomp -i "$RUNNER_TEMP/script.txt" < /dev/null > "$RUNNER_TEMP/console.log" 2>&1
           status=$?
