@@ -12,7 +12,7 @@
 //! simplifications: no stack-variable (`var_4`) naming, no `Attributes:` / type comment lines, no
 //! data items, and the section name is supplied by the caller.
 
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, HashMap};
 use std::fmt::Write as _;
 
 /// Column (counted from the end of the `section:address ` prefix) where comments start.
@@ -219,10 +219,9 @@ pub fn restyle_x86_operands(operands: &str, symbolize: &dyn Fn(u64) -> Option<St
 struct Layout<'a> {
     options: &'a ListingOptions,
     function_names: BTreeMap<u64, String>,
-    label_targets: BTreeSet<u64>,
     /// Incoming cross-references per target, sorted by source address.
     incoming: BTreeMap<u64, Vec<ListingXref>>,
-    /// `(function start, name)` sorted for "which function contains this address" lookups.
+    /// `(start, end, name)` sorted by start for "which function contains this address" lookups.
     ranges: Vec<(u64, u64, String)>,
 }
 
@@ -240,20 +239,32 @@ impl Layout<'_> {
         if let Some(name) = self.function_names.get(&address) {
             return Some(name.clone());
         }
-        if self.label_targets.contains(&address) {
+        if self.is_label(address) {
             return Some(format!("loc_{address:X}"));
         }
         None
     }
 
+    /// Index of the function range containing `address`.
+    fn containing(&self, address: u64) -> Option<usize> {
+        let after = self.ranges.partition_point(|(start, _, _)| *start <= address);
+        let index = after.checked_sub(1)?;
+        (address < self.ranges[index].1).then_some(index)
+    }
+
+    /// A `loc_` label: the target of a jump that lands inside a listed function but not on its start.
+    fn is_label(&self, address: u64) -> bool {
+        !self.function_names.contains_key(&address)
+            && self.containing(address).is_some()
+            && self
+                .incoming
+                .get(&address)
+                .is_some_and(|refs| refs.iter().any(|r| r.kind == XrefKind::Jump))
+    }
+
     /// `function+offset` text for a reference source.
     fn location_text(&self, address: u64) -> String {
-        let containing = self
-            .ranges
-            .iter()
-            .rev()
-            .find(|(start, end, _)| address >= *start && address < *end);
-        match containing {
+        match self.containing(address).map(|index| &self.ranges[index]) {
             Some((start, _, name)) if *start == address => name.clone(),
             Some((start, _, name)) => format!("{name}+{:X}", address - start),
             None => format!("loc_{address:X}"),
@@ -356,64 +367,51 @@ impl Layout<'_> {
     }
 }
 
-/// Renders functions as an IDA-style text listing. Functions are listed in address order.
-pub fn render_listing(functions: &[ListingFunction], xrefs: &[ListingXref], options: &ListingOptions) -> String {
-    let mut sorted: Vec<&ListingFunction> = functions.iter().collect();
-    sorted.sort_by_key(|f| f.start);
+/// Everything needed to render one function at a time: function names and ranges plus the
+/// incoming cross-references. Holds no instructions, so a whole binary can be listed with memory
+/// proportional to the number of functions and references rather than to the code size.
+pub struct ListingContext<'a> {
+    layout: Layout<'a>,
+}
 
-    let function_names: BTreeMap<u64, String> = sorted.iter().map(|f| (f.start, f.name.clone())).collect();
-    let ranges: Vec<(u64, u64, String)> = sorted
-        .iter()
-        .map(|f| {
-            let end = f
-                .instructions
-                .last()
-                .map(|i| i.address + i.bytes.len().max(1) as u64)
-                .unwrap_or(f.start + 1);
-            (f.start, end.max(f.start + 1), f.name.clone())
-        })
-        .collect();
-
-    let mut incoming: BTreeMap<u64, Vec<ListingXref>> = BTreeMap::new();
-    for x in xrefs {
-        incoming.entry(x.to).or_default().push(*x);
-    }
-    for list in incoming.values_mut() {
-        list.sort_by_key(|x| (x.from, x.kind.letter()));
-        list.dedup();
-    }
-
-    // loc_ labels: instruction addresses (not function starts) that are jump targets
-    let mut instruction_addresses: BTreeSet<u64> = BTreeSet::new();
-    for f in &sorted {
-        for i in &f.instructions {
-            instruction_addresses.insert(i.address);
+impl<'a> ListingContext<'a> {
+    /// `functions` is `(name, start, end)` per function; they need not be sorted.
+    pub fn new(functions: &[(String, u64, u64)], xrefs: &[ListingXref], options: &'a ListingOptions) -> Self {
+        let mut ranges: Vec<(u64, u64, String)> = functions
+            .iter()
+            .map(|(name, start, end)| (*start, (*end).max(*start + 1), name.clone()))
+            .collect();
+        ranges.sort_by_key(|r| r.0);
+        ranges.dedup_by_key(|r| r.0);
+        let function_names: BTreeMap<u64, String> = ranges.iter().map(|(s, _, n)| (*s, n.clone())).collect();
+        let mut incoming: BTreeMap<u64, Vec<ListingXref>> = BTreeMap::new();
+        for x in xrefs {
+            incoming.entry(x.to).or_default().push(*x);
+        }
+        for list in incoming.values_mut() {
+            list.sort_by_key(|x| (x.from, x.kind.letter()));
+            list.dedup();
+        }
+        ListingContext {
+            layout: Layout {
+                options,
+                function_names,
+                incoming,
+                ranges,
+            },
         }
     }
-    let label_targets: BTreeSet<u64> = xrefs
-        .iter()
-        .filter(|x| x.kind == XrefKind::Jump)
-        .map(|x| x.to)
-        .filter(|a| instruction_addresses.contains(a) && !function_names.contains_key(a))
-        .collect();
 
-    let layout = Layout {
-        options,
-        function_names,
-        label_targets,
-        incoming,
-        ranges,
-    };
-
-    let mut out = String::new();
-    for f in sorted {
+    /// Appends the listing of one function to `out`.
+    pub fn render_function(&self, f: &ListingFunction, out: &mut String) {
+        let layout = &self.layout;
         let start = f.start;
         layout.emit(
-            &mut out,
+            out,
             start,
             "; =============== S U B R O U T I N E =======================================",
         );
-        layout.emit(&mut out, start, "");
+        layout.emit(out, start, "");
         let mut header = format!("{:<width$}", f.name, width = NAME_WIDTH);
         if f.name.chars().count() >= NAME_WIDTH {
             header.push(' ');
@@ -423,40 +421,34 @@ pub fn render_listing(functions: &[ListingFunction], xrefs: &[ListingXref], opti
         comments.extend(layout.xref_comment_lines(start, false));
         match comments.split_first() {
             Some((first, rest)) => {
-                layout.emit(&mut out, start, &layout.with_comment(header, first));
+                layout.emit(out, start, &layout.with_comment(header, first));
                 for line in rest {
-                    layout.emit(&mut out, start, &layout.with_comment(String::new(), line));
+                    layout.emit(out, start, &layout.with_comment(String::new(), line));
                 }
             }
-            None => layout.emit(&mut out, start, &header),
+            None => layout.emit(out, start, &header),
         }
-        layout.emit(&mut out, start, "");
+        layout.emit(out, start, "");
         for insn in &f.instructions {
-            if insn.address != start && layout.label_targets.contains(&insn.address) {
+            if insn.address != start && layout.is_label(insn.address) {
                 let label = format!("loc_{:X}:", insn.address);
                 let comments = layout.xref_comment_lines(insn.address, true);
                 match comments.split_first() {
                     Some((first, rest)) => {
-                        layout.emit(&mut out, insn.address, &layout.with_comment(label, first));
+                        layout.emit(out, insn.address, &layout.with_comment(label, first));
                         for line in rest {
-                            layout.emit(&mut out, insn.address, &layout.with_comment(String::new(), line));
+                            layout.emit(out, insn.address, &layout.with_comment(String::new(), line));
                         }
                     }
-                    None => layout.emit(&mut out, insn.address, &label),
+                    None => layout.emit(out, insn.address, &label),
                 }
             }
             let text = layout.instruction_text(insn);
-            layout.emit(&mut out, insn.address, &text);
+            layout.emit(out, insn.address, &text);
         }
-        let end_address = layout
-            .ranges
-            .iter()
-            .find(|(s, _, _)| *s == start)
-            .map(|(_, e, _)| *e)
-            .unwrap_or(start);
-        let last_address = f.instructions.last().map(|i| i.address).unwrap_or(end_address);
+        let last_address = f.instructions.last().map(|i| i.address).unwrap_or(start);
         layout.emit(
-            &mut out,
+            out,
             last_address,
             &format!(
                 "{:<width$}{}",
@@ -465,7 +457,29 @@ pub fn render_listing(functions: &[ListingFunction], xrefs: &[ListingXref], opti
                 width = NAME_WIDTH.max(f.name.chars().count() + 1)
             ),
         );
-        layout.emit(&mut out, last_address, "");
+        layout.emit(out, last_address, "");
+    }
+}
+
+/// Renders functions as an IDA-style text listing. Functions are listed in address order.
+pub fn render_listing(functions: &[ListingFunction], xrefs: &[ListingXref], options: &ListingOptions) -> String {
+    let mut sorted: Vec<&ListingFunction> = functions.iter().collect();
+    sorted.sort_by_key(|f| f.start);
+    let ranges: Vec<(String, u64, u64)> = sorted
+        .iter()
+        .map(|f| {
+            let end = f
+                .instructions
+                .last()
+                .map(|i| i.address + i.bytes.len().max(1) as u64)
+                .unwrap_or(f.start + 1);
+            (f.name.clone(), f.start, end)
+        })
+        .collect();
+    let context = ListingContext::new(&ranges, xrefs, options);
+    let mut out = String::new();
+    for f in sorted {
+        context.render_function(f, &mut out);
     }
     out
 }

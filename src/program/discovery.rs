@@ -9,7 +9,7 @@ use crate::op::PcodeOp;
 use crate::oplist::LinkedNode;
 use crate::space::SpaceRef;
 
-const MAX_DISCOVERED_FUNCTIONS: usize = 100_000;
+const MAX_DISCOVERED_FUNCTIONS: usize = 2_000_000;
 const MAX_ARM64_PROLOGUE_CANDIDATES: usize = 50_000;
 const MAX_ARM64_SCAN_BYTES: u64 = 128 * 1024 * 1024;
 
