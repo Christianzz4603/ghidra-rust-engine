@@ -62,6 +62,10 @@ jobs:
             grep -E "Progress:" "$RUNNER_TEMP/console.log" 2>/dev/null | tail -1 | sed 's/^/- last /'
             grep -E "Analysis finished|Discovered functions" "$RUNNER_TEMP/console.log" "$RUNNER_TEMP/analysis/"*.report.txt 2>/dev/null | head -5 | sed 's/^/- /'
             echo
+            echo '```'
+            head -c 3000 "$RUNNER_TEMP/console.log" 2>/dev/null
+            echo '```'
+            echo
             python3 ci/scale/score.py "$RUNNER_TEMP/lib/libscale.so" "$RUNNER_TEMP/analysis" libscale.stripped.so
             echo
             du -sh "$RUNNER_TEMP/analysis" 2>/dev/null | sed 's/^/- output size: /'
