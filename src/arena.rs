@@ -27,6 +27,9 @@ macro_rules! define_id {
 
 pub struct Arena<Id, T> {
     slots: Vec<Option<T>>,
+    /// Ids below `base` were handed out before the last `clear`. Their slots are gone (so a
+    /// cleared arena holds no memory) but the ids are never reused, so a stale id still panics.
+    base: usize,
     live: usize,
     marker: PhantomData<Id>,
 }
@@ -41,6 +44,7 @@ impl<Id: ArenaId, T: Clone> Clone for Arena<Id, T> {
     fn clone(&self) -> Arena<Id, T> {
         Arena {
             slots: self.slots.clone(),
+            base: self.base,
             live: self.live,
             marker: PhantomData,
         }
@@ -57,20 +61,25 @@ impl<Id: ArenaId, T> Arena<Id, T> {
     pub fn new() -> Arena<Id, T> {
         Arena {
             slots: Vec::new(),
+            base: 0,
             live: 0,
             marker: PhantomData,
         }
     }
 
+    fn slot_index(&self, id: Id) -> Option<usize> {
+        id.index().checked_sub(self.base)
+    }
+
     pub fn alloc(&mut self, value: T) -> Id {
-        let id = Id::from_index(self.slots.len());
+        let id = Id::from_index(self.base + self.slots.len());
         self.slots.push(Some(value));
         self.live += 1;
         id
     }
 
     pub fn alloc_with(&mut self, build: impl FnOnce(Id) -> T) -> Id {
-        let id = Id::from_index(self.slots.len());
+        let id = Id::from_index(self.base + self.slots.len());
         let value = build(id);
         self.slots.push(Some(value));
         self.live += 1;
@@ -78,51 +87,58 @@ impl<Id: ArenaId, T> Arena<Id, T> {
     }
 
     pub fn next_id(&self) -> Id {
-        Id::from_index(self.slots.len())
+        Id::from_index(self.base + self.slots.len())
     }
 
     pub fn contains(&self, id: Id) -> bool {
-        matches!(self.slots.get(id.index()), Some(Some(_)))
+        self.try_get(id).is_some()
     }
 
     pub fn get(&self, id: Id) -> &T {
-        match self.slots.get(id.index()) {
-            Some(Some(value)) => value,
-            _ => panic!("stale or invalid arena id {:?}", id),
+        match self.try_get(id) {
+            Some(value) => value,
+            None => panic!("stale or invalid arena id {:?}", id),
         }
     }
 
     pub fn get_mut(&mut self, id: Id) -> &mut T {
-        match self.slots.get_mut(id.index()) {
-            Some(Some(value)) => value,
-            _ => panic!("stale or invalid arena id {:?}", id),
+        match self.try_get_mut(id) {
+            Some(value) => value,
+            None => panic!("stale or invalid arena id {:?}", id),
         }
     }
 
     pub fn try_get(&self, id: Id) -> Option<&T> {
-        self.slots.get(id.index()).and_then(|slot| slot.as_ref())
+        let index = self.slot_index(id)?;
+        self.slots.get(index).and_then(|slot| slot.as_ref())
     }
 
     pub fn try_get_mut(&mut self, id: Id) -> Option<&mut T> {
-        self.slots.get_mut(id.index()).and_then(|slot| slot.as_mut())
+        let index = self.slot_index(id)?;
+        self.slots.get_mut(index).and_then(|slot| slot.as_mut())
     }
 
     pub fn get2_mut(&mut self, first: Id, second: Id) -> (&mut T, &mut T) {
-        let first_index = first.index();
-        let second_index = second.index();
-        assert!(first_index != second_index, "get2_mut with identical ids {:?}", first);
-        let (low, high, swapped) = if first_index < second_index {
-            (first_index, second_index, false)
+        assert!(
+            first.index() != second.index(),
+            "get2_mut with identical ids {:?}",
+            first
+        );
+        let (low_id, high_id, swapped) = if first.index() < second.index() {
+            (first, second, false)
         } else {
-            (second_index, first_index, true)
+            (second, first, true)
+        };
+        let (Some(low), Some(high)) = (self.slot_index(low_id), self.slot_index(high_id)) else {
+            panic!("stale or invalid arena id {:?} or {:?}", low_id, high_id);
         };
         let (head, tail) = self.slots.split_at_mut(high);
         let low_value = head[low]
             .as_mut()
-            .unwrap_or_else(|| panic!("stale or invalid arena id {:?}", Id::from_index(low)));
+            .unwrap_or_else(|| panic!("stale or invalid arena id {:?}", low_id));
         let high_value = tail[0]
             .as_mut()
-            .unwrap_or_else(|| panic!("stale or invalid arena id {:?}", Id::from_index(high)));
+            .unwrap_or_else(|| panic!("stale or invalid arena id {:?}", high_id));
         if swapped {
             (high_value, low_value)
         } else {
@@ -132,18 +148,18 @@ impl<Id: ArenaId, T> Arena<Id, T> {
 
     pub fn remove(&mut self, id: Id) -> T {
         let value = self
-            .slots
-            .get_mut(id.index())
+            .slot_index(id)
+            .and_then(|index| self.slots.get_mut(index))
             .and_then(|slot| slot.take())
             .unwrap_or_else(|| panic!("stale or invalid arena id {:?}", id));
         self.live -= 1;
         value
     }
 
+    /// Removes every element and frees the storage. Ids already issued stay invalid.
     pub fn clear(&mut self) {
-        for slot in self.slots.iter_mut() {
-            *slot = None;
-        }
+        self.base += self.slots.len();
+        self.slots = Vec::new();
         self.live = 0;
     }
 
@@ -156,21 +172,23 @@ impl<Id: ArenaId, T> Arena<Id, T> {
     }
 
     pub fn capacity_ids(&self) -> usize {
-        self.slots.len()
+        self.base + self.slots.len()
     }
 
     pub fn iter(&self) -> impl DoubleEndedIterator<Item = (Id, &T)> {
+        let base = self.base;
         self.slots
             .iter()
             .enumerate()
-            .filter_map(|(index, slot)| slot.as_ref().map(|value| (Id::from_index(index), value)))
+            .filter_map(move |(index, slot)| slot.as_ref().map(|value| (Id::from_index(base + index), value)))
     }
 
     pub fn iter_mut(&mut self) -> impl DoubleEndedIterator<Item = (Id, &mut T)> {
+        let base = self.base;
         self.slots
             .iter_mut()
             .enumerate()
-            .filter_map(|(index, slot)| slot.as_mut().map(|value| (Id::from_index(index), value)))
+            .filter_map(move |(index, slot)| slot.as_mut().map(|value| (Id::from_index(base + index), value)))
     }
 
     pub fn ids(&self) -> Vec<Id> {
@@ -232,6 +250,19 @@ mod tests {
         assert!(arena.is_empty());
         assert_eq!(arena.alloc(40), TestId(3));
         assert_eq!(arena.capacity_ids(), 4);
+    }
+
+    #[test]
+    fn clear_frees_storage_but_ids_stay_stale() {
+        let mut arena: Arena<TestId, i32> = Arena::new();
+        let old = arena.alloc(1);
+        arena.clear();
+        assert!(!arena.contains(old));
+        let fresh = arena.alloc(2);
+        assert_eq!(fresh, TestId(1));
+        assert_eq!(arena[fresh], 2);
+        assert!(arena.try_get(old).is_none());
+        assert_eq!(arena.capacity_ids(), 2);
     }
 
     #[test]
