@@ -52,6 +52,9 @@ jobs:
           printf 'open %s/lib/libscale.stripped.so\nanalyze %s\nquit\n' "$RUNNER_TEMP" "$out" > "$RUNNER_TEMP/script.txt"
           start=$(date +%s)
           set +e
+          # Cap address space so a runaway allocation fails this step with a message instead of
+          # taking the whole runner down.
+          ulimit -v 6291456
           timeout 300m /usr/bin/time -v -o "$RUNNER_TEMP/time.txt" \
             target/release/examples/decomp -i "$RUNNER_TEMP/script.txt" < /dev/null > "$RUNNER_TEMP/console.log" 2>&1
           status=$?
@@ -70,7 +73,9 @@ jobs:
             grep -E "Analysis finished|Discovered functions" "$RUNNER_TEMP/console.log" "$RUNNER_TEMP/analysis/"*.report.txt 2>/dev/null | head -5 | sed 's/^/- /'
             echo
             echo '```'
-            head -c 3000 "$RUNNER_TEMP/console.log" 2>/dev/null
+            head -c 1500 "$RUNNER_TEMP/console.log" 2>/dev/null
+            echo '...'
+            tail -c 1500 "$RUNNER_TEMP/console.log" 2>/dev/null
             echo '```'
             echo
             python3 ci/scale/score.py "$RUNNER_TEMP/lib/libscale.so" "$RUNNER_TEMP/analysis" libscale.stripped.so
