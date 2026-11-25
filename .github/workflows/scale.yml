@@ -34,6 +34,13 @@ jobs:
         run: rustup toolchain install
       - name: Build engine
         run: cargo build --release --example decomp
+      - name: Console smoke test
+        continue-on-error: true
+        run: |
+          for line in "open /nonexistent" "load file /nonexistent" "analyze /tmp/x" "decompile all /tmp/x" "help"; do
+            echo "== stdin: $line"
+            printf '%s\nquit\n' "$line" | timeout 60 target/release/examples/decomp 2>&1 | head -8
+          done
       - name: Generate library
         run: python3 ci/scale/gen_library.py ${{ matrix.size_mb }} "$RUNNER_TEMP/lib"
       - name: Analyze whole library
