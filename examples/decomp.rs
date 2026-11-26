@@ -8,9 +8,6 @@ use ghidra_decompiler::interface::{IfaceError, IfaceStatus, new_out_stream, out_
 use ghidra_decompiler::sleigh_arch::{add_global_language_directory, scan_global_sleigh_directories};
 use ghidra_decompiler::{DecompilerReconstructor, Program};
 
-#[path = "webui.rs"]
-mod webui;
-
 const RELEASES_URL: &str = "https://github.com/Christianzz4603/ghidra-rust-engine/releases/latest";
 const API_URL: &str = "https://api.github.com/repos/Christianzz4603/ghidra-rust-engine/releases/latest";
 
@@ -113,10 +110,11 @@ fn setup() -> Result<(), String> {
     if !settings.exists() {
         fs::write(
             &settings,
-            "# Ghidra Rust Engine CLI settings\n# Output directory used by your analysis workflows.\noutput_dir = \"output\"\n",
-        ).map_err(|err| err.to_string())?;
+            "# Reverse++ CLI settings\n# Output directory used by your analysis workflows.\noutput_dir = \"output\"\n",
+        )
+        .map_err(|err| err.to_string())?;
     }
-    println!("Ghidra Rust Engine {} is initialized.", version());
+    println!("Reverse++ {} is initialized.", version());
     println!("Config: {}", config.display());
     println!("Workspace: {}", data.display());
     println!("This does not modify your shell PATH; place the executable in a directory already on PATH.");
@@ -132,7 +130,7 @@ fn print_update_status() {
                 println!("Update available: {} -> {}", version(), latest.trim_start_matches('v'));
                 println!("Release: {RELEASES_URL}");
             } else {
-                println!("Ghidra Rust Engine {} is up to date.", version());
+                println!("Reverse++ {} is up to date.", version());
             }
         }
         None => {
@@ -148,13 +146,10 @@ fn main() -> ExitCode {
         .get(1)
         .is_some_and(|arg| arg == "--help" || arg == "-h" || arg == "help")
     {
-        println!("Ghidra Rust Engine {}", version());
-        println!(
-            "Usage: ghidra-rust_cli [--version | --help | setup | update | web [--port=PORT] | reconstruct <binary> <address>]"
-        );
+        println!("Reverse++ {}", version());
+        println!("Usage: ghidra-rust_cli [--version | --help | setup | update | reconstruct <binary> <address>]");
         println!();
         println!("Run without arguments to open the interactive decompiler console.");
-        println!("Run `ghidra-rust_cli web` to launch the built-in browser workspace.");
         println!("Run `ghidra-rust_cli reconstruct <binary> <address>` for pseudocode and reconstruction evidence.");
         println!("Inside the console: open <binary>, then decompile <function>.");
         println!("Decompiled files are saved in an output/ folder beside this executable by default.");
@@ -173,20 +168,6 @@ fn main() -> ExitCode {
             Ok(()) => ExitCode::SUCCESS,
             Err(err) => {
                 eprintln!("Setup failed: {err}");
-                ExitCode::from(1)
-            }
-        };
-    }
-    if args.get(1).is_some_and(|arg| arg == "web" || arg == "--web") {
-        let port = args
-            .iter()
-            .skip(2)
-            .find_map(|arg| arg.strip_prefix("--port=").and_then(|v| v.parse::<u16>().ok()))
-            .unwrap_or(8080);
-        return match webui::run(port) {
-            Ok(()) => ExitCode::SUCCESS,
-            Err(err) => {
-                eprintln!("Web UI failed: {err}");
                 ExitCode::from(1)
             }
         };

@@ -1,0 +1,99 @@
+name: Scale
+
+# Builds a large stripped shared library and runs whole-library analysis on it, recording time,
+# peak memory and recovery against ground truth. Measurement only; it makes no accuracy claim.
+on:
+  workflow_dispatch:
+    inputs:
+      size_mb:
+        description: "Library size in MB"
+        default: "100"
+  pull_request:
+    paths:
+      - "ci/scale/**"
+      - ".github/workflows/scale.yml"
+      - "src/ifacedecomp/printing.rs"
+      - "src/idastyle.rs"
+      - "src/funcstarts.rs"
+      - "src/program/**"
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  scale:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 350
+    strategy:
+      fail-fast: false
+      matrix:
+        size_mb: [10, 100]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain
+        run: rustup toolchain install
+      - name: Build engine
+        run: cargo build --release --example decomp
+      - name: Console smoke test
+        continue-on-error: true
+        run: |
+          for line in "open /nonexistent" "load file /nonexistent" "analyze /tmp/x" "decompile all /tmp/x" "help"; do
+            echo "== stdin: $line"
+            printf '%s\nquit\n' "$line" | timeout 60 target/release/examples/decomp 2>&1 | head -8
+          done
+      - name: Generate library
+        run: python3 ci/scale/gen_library.py ${{ matrix.size_mb }} "$RUNNER_TEMP/lib"
+      - name: Analyze whole library
+        id: analyze
+        continue-on-error: true
+        run: |
+          out="$RUNNER_TEMP/analysis"
+          mkdir -p "$out"
+          printf 'open %s/lib/libscale.stripped.so\nanalyze %s\nquit\n' "$RUNNER_TEMP" "$out" > "$RUNNER_TEMP/script.txt"
+          start=$(date +%s)
+          set +e
+          # Cap address space so a runaway allocation fails this step with a message instead of
+          # taking the whole runner down.
+          ulimit -v 6291456
+          export REVERSEPP_STAGE_LOG=1
+          timeout ${{ matrix.size_mb == 10 && '20m' || '60m' }} /usr/bin/time -v -o "$RUNNER_TEMP/time.txt" \
+            target/release/examples/decomp -i "$RUNNER_TEMP/script.txt" < /dev/null > "$RUNNER_TEMP/console.log" 2>&1
+          status=$?
+          echo "exit=$status seconds=$(( $(date +%s) - start ))" > "$RUNNER_TEMP/result.txt"
+          exit 0
+      - name: Summarize
+        if: always()
+        run: |
+          {
+            echo "### Scale ${{ matrix.size_mb }} MB"
+            echo
+            echo "- library: $(stat -c %s "$RUNNER_TEMP/lib/libscale.stripped.so") bytes (stripped)"
+            echo "- $(cat "$RUNNER_TEMP/result.txt" 2>/dev/null || echo 'analysis did not start')"
+            grep -E "Maximum resident|Elapsed" "$RUNNER_TEMP/time.txt" 2>/dev/null | sed 's/^\s*/- /'
+            grep -E "Progress:" "$RUNNER_TEMP/console.log" 2>/dev/null | tail -1 | sed 's/^/- last /'
+            grep -E "Analysis finished|Discovered functions" "$RUNNER_TEMP/console.log" "$RUNNER_TEMP/analysis/"*.report.txt 2>/dev/null | head -5 | sed 's/^/- /'
+            echo
+            echo '```'
+            head -c 1500 "$RUNNER_TEMP/console.log" 2>/dev/null
+            echo '...'
+            tail -c 1500 "$RUNNER_TEMP/console.log" 2>/dev/null
+            echo '```'
+            echo
+            python3 ci/scale/score.py "$RUNNER_TEMP/lib/libscale.so" "$RUNNER_TEMP/analysis" libscale.stripped.so
+            echo
+            du -sh "$RUNNER_TEMP/analysis" 2>/dev/null | sed 's/^/- output size: /'
+            echo '```'
+            ls -lS "$RUNNER_TEMP/analysis" 2>/dev/null | head -12
+            echo '```'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scale-${{ matrix.size_mb }}mb
+          path: |
+            ${{ runner.temp }}/console.log
+            ${{ runner.temp }}/time.txt
+            ${{ runner.temp }}/result.txt
+            ${{ runner.temp }}/analysis/*.report.txt
+            ${{ runner.temp }}/analysis/*.coverage.csv

@@ -6,7 +6,7 @@ use object::read::elf::{ElfFile, FileHeader, Sym, SymbolTable};
 use object::{Endianness, Object, ObjectSection, ObjectSymbol, ObjectSymbolTable, RelocationTarget, SectionKind};
 
 const MAX_IMAGE_SECTIONS: usize = 131_072;
-const MAX_IMAGE_SYMBOLS: usize = 250_000;
+const MAX_IMAGE_SYMBOLS: usize = 2_000_000;
 const MAX_IMAGE_SYMBOL_NAME_BYTES: usize = 1_024;
 
 pub(crate) struct NamedAddress {

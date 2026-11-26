@@ -67,6 +67,11 @@ pub struct Program {
     string_sections: Vec<std::ops::Range<u64>>,
     code_sections: Vec<std::ops::Range<u64>>,
     entry: Option<u64>,
+    /// Function starts recovered at load time from container metadata (`.eh_frame`, `.pdata`,
+    /// `LC_FUNCTION_STARTS`) and byte patterns; used as extra discovery seeds.
+    start_hints: Vec<u64>,
+    /// Call sites found while discovering functions, `caller -> [(callee, call site)]`.
+    call_cache: BTreeMap<u64, Vec<(u64, u64)>>,
     // Translation is immutable for a loaded image. Shared cached streams let
     // intelligence, SSA, and reconstruction reuse expensive P-code decoding.
     pcode_cache: RefCell<PcodeCache>,
@@ -433,12 +438,21 @@ impl Program {
                 MAX_INPUT_IMAGE_BYTES
             )));
         }
+        let (bytes, start_hints) = match crate::patch::PatchableImage::try_parse(bytes) {
+            Ok(image) => {
+                let hints = crate::funcstarts::seeds(&image);
+                (image.into_bytes(), hints)
+            }
+            Err((_, bytes)) => (bytes, Vec::new()),
+        };
         let symbols = match loading {
             SymbolLoading::Loader => SymbolInput::Loader,
             SymbolLoading::Full => SymbolInput::Full(Box::new(symbols::image_symbols(&bytes))),
         };
         let builder = ObjectArchitecture::with_bytes(name, language.unwrap_or("default"), bytes);
-        Program::initialize(Arc::new(builder), symbols)
+        let mut program = Program::initialize(Arc::new(builder), symbols)?;
+        program.start_hints = start_hints;
+        Ok(program)
     }
 
     pub fn from_raw_bytes(bytes: Vec<u8>, language: &str, base_address: u64) -> Result<Program> {
@@ -477,6 +491,8 @@ impl Program {
             string_sections: Vec::new(),
             code_sections: Vec::new(),
             entry: None,
+            start_hints: Vec::new(),
+            call_cache: BTreeMap::new(),
             pcode_cache: RefCell::new(PcodeCache::default()),
         };
         match symbols {
@@ -1676,6 +1692,24 @@ impl Program {
         let mut graph = CallGraph::new();
         graph.build_all_nodes(&mut self.architecture)?;
         for sym in self.architecture.function_symbols_address_order()? {
+            // Discovery already lifted every function it found; reuse its call sites.
+            let caller_offset = self.function_address(sym)?;
+            if let Some(calls) = self.call_cache.get(&caller_offset) {
+                let caller = self.code_address(caller_offset)?;
+                if graph.find_node(&caller).is_some() {
+                    for (callee_offset, site_offset) in calls {
+                        let callee = self.code_address(*callee_offset)?;
+                        if graph.find_node(&callee).is_none() {
+                            let mut name = String::new();
+                            self.architecture.name_function(&callee, &mut name);
+                            graph.add_node(&callee, &name);
+                        }
+                        let site = self.code_address(*site_offset)?;
+                        graph.add_edge(&caller, &callee, &site);
+                    }
+                    continue;
+                }
+            }
             self.architecture.with_function(sym, |function, architecture| {
                 if function.has_no_code() {
                     return Ok(());

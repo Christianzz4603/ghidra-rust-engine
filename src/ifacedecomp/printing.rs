@@ -622,6 +622,57 @@ pub fn ifc_produce_c(args: &mut IStream, status: &mut IfaceStatus) -> IfaceResul
     result
 }
 
+/// Per-function diagnostics kept for the report. Large binaries can fail on many functions, so
+/// only the first lines are stored and the rest are counted.
+#[derive(Default)]
+struct BoundedDiagnostics {
+    lines: Vec<String>,
+    dropped: usize,
+}
+
+impl BoundedDiagnostics {
+    const MAX_LINES: usize = 20_000;
+
+    fn push(&mut self, line: String) {
+        if self.lines.len() < Self::MAX_LINES {
+            self.lines.push(line);
+        } else {
+            self.dropped += 1;
+        }
+    }
+
+    fn render(&self) -> String {
+        if self.lines.is_empty() {
+            return "No per-function failures reported.".to_string();
+        }
+        let mut text = self.lines.join("\n");
+        if self.dropped > 0 {
+            text.push_str(&format!("\n... {} more diagnostic(s) omitted", self.dropped));
+        }
+        text
+    }
+}
+
+/// Prints `label` and the resident memory to stderr when `REVERSEPP_STAGE_LOG` is set, so a run
+/// that dies can be traced to the stage it died in.
+fn stage_log(label: &str) {
+    if std::env::var_os("REVERSEPP_STAGE_LOG").is_none() {
+        return;
+    }
+    let resident = std::fs::read_to_string("/proc/self/status")
+        .ok()
+        .and_then(|status| {
+            status
+                .lines()
+                .find(|line| line.starts_with("VmRSS:"))
+                .map(|line| line.trim_start_matches("VmRSS:").trim().to_string())
+        })
+        .unwrap_or_default();
+    static START: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
+    let seconds = START.get_or_init(Instant::now).elapsed().as_secs();
+    eprintln!("[stage] {label} t={seconds}s rss={resident}");
+}
+
 pub fn ifc_analyze_all(args: &mut IStream, status: &mut IfaceStatus) -> IfaceResult<()> {
     let optr = status.optr.clone();
     let mut output_dir = String::new();
@@ -658,26 +709,40 @@ pub fn ifc_analyze_all(args: &mut IStream, status: &mut IfaceStatus) -> IfaceRes
         .map_err(|err| IfaceError::Execution(format!("Cannot create {}: {err}", asm_path.display())))?;
     let mut csv_file = std::fs::File::create(&csv_path)
         .map_err(|err| IfaceError::Execution(format!("Cannot create {}: {err}", csv_path.display())))?;
+    let lst_path = directory.join(format!("{binary_name}.lst"));
+    let ida_c_path = directory.join(format!("{binary_name}.ida.c"));
+    let mut ida_c_file = std::fs::File::create(&ida_c_path)
+        .map_err(|err| IfaceError::Execution(format!("Cannot create {}: {err}", ida_c_path.display())))?;
+    let mut lst_file = std::io::BufWriter::new(
+        std::fs::File::create(&lst_path)
+            .map_err(|err| IfaceError::Execution(format!("Cannot create {}: {err}", lst_path.display())))?,
+    );
 
     out_write(&optr, &format!("Loading program metadata for {filename}...\n"));
+    stage_log("open program");
     let mut program = Program::open(std::path::Path::new(&filename), None)
         .map_err(|err| IfaceError::Execution(format!("Cannot open program for discovery: {}", err.explain())))?;
     out_write(
         &optr,
         "Discovering functions from entry point, symbols, and reachable code...\n",
     );
+    stage_log("discover functions");
     program
         .discover_functions()
         .map_err(|err| IfaceError::Execution(format!("Function discovery failed: {}", err.explain())))?;
+    stage_log("list functions");
     let functions = program
         .functions()
         .map_err(|err| IfaceError::Execution(format!("Cannot list functions: {}", err.explain())))?;
+    stage_log("data symbols");
     let data = program
         .data_symbols()
         .map_err(|err| IfaceError::Execution(format!("Cannot list data symbols: {}", err.explain())))?;
+    stage_log("strings");
     let strings = program
         .strings()
         .map_err(|err| IfaceError::Execution(format!("Cannot extract strings: {}", err.explain())))?;
+    stage_log("call graph");
     let calls = program
         .call_graph()
         .map_err(|err| IfaceError::Execution(format!("Cannot build call graph: {}", err.explain())))?;
@@ -690,6 +755,7 @@ pub fn ifc_analyze_all(args: &mut IStream, status: &mut IfaceStatus) -> IfaceRes
         "record,section_start,section_end,address,bytes,decoded_bytes,instructions,gaps"
     )
     .map_err(|err| IfaceError::Execution(err.to_string()))?;
+    stage_log("code section sweep");
     let code_coverage = program
         .scan_code_sections(|gap| {
             writeln!(coverage_file, "gap,,,{:#x},{},,,", gap.address, gap.length)
@@ -712,6 +778,7 @@ pub fn ifc_analyze_all(args: &mut IStream, status: &mut IfaceStatus) -> IfaceRes
     coverage_file
         .flush()
         .map_err(|err| IfaceError::Execution(err.to_string()))?;
+    stage_log("intelligence analysis");
     let intelligence = BinaryIntelligence::new(&mut program)
         .analyze_all()
         .map_err(|err| IfaceError::Execution(format!("Intelligence analysis failed: {}", err.explain())))?;
@@ -966,13 +1033,64 @@ pub fn ifc_analyze_all(args: &mut IStream, status: &mut IfaceStatus) -> IfaceRes
     let mut decompile_failures = 0usize;
     let mut partial_disassemblies = 0usize;
     let mut undecoded_bytes = 0u64;
-    let mut diagnostics = Vec::new();
+    let mut diagnostics = BoundedDiagnostics::default();
     let total = functions.len();
     out_write(&optr, &format!("Analyzing {total} discovered function(s)...\n"));
-    for function in functions {
+    // Sizes first: the listing needs every function's range up front so each function can be
+    // written as soon as it is disassembled, without keeping the instructions of the whole binary.
+    stage_log("function sizes");
+    let sized: Vec<(_, Result<u64, Error>)> = functions
+        .into_iter()
+        .map(|function| {
+            let size = program.function_size(function.address);
+            (function, size)
+        })
+        .collect();
+    let listing_options = crate::idastyle::ListingOptions::for_language(program.language_id());
+    stage_log("listing context");
+    let listing_context = {
+        use crate::idastyle::{ListingContext, ListingXref, XrefKind};
+        use crate::intelligence::ReferenceKind;
+        let listing_xrefs: Vec<ListingXref> = intelligence
+            .cross_references
+            .iter()
+            .map(|reference| ListingXref {
+                from: reference.from,
+                to: reference.to,
+                kind: match reference.kind {
+                    ReferenceKind::Call => XrefKind::Call,
+                    ReferenceKind::Branch => XrefKind::Jump,
+                    ReferenceKind::Read => XrefKind::Read,
+                    ReferenceKind::Write => XrefKind::Write,
+                    ReferenceKind::Data => XrefKind::Offset,
+                },
+            })
+            .collect();
+        let ranges: Vec<(String, u64, u64)> = sized
+            .iter()
+            .filter_map(|(function, size)| match size {
+                Ok(size) if *size > 0 => Some((function.name.clone(), function.address, function.address + size)),
+                _ => None,
+            })
+            .collect();
+        ListingContext::new(&ranges, &listing_xrefs, &listing_options)
+    };
+    // Everything the loop still needs from the intelligence pass is a count; release the
+    // per-function CFGs, data flow and fingerprints (gigabytes on large libraries) now.
+    let intelligence_counts = [
+        intelligence.cross_references.len(),
+        intelligence.control_flow_graphs.len(),
+        intelligence.data_flow.len(),
+        intelligence.fingerprints.len(),
+        intelligence.prototypes.len(),
+        intelligence.failures.len(),
+    ];
+    drop(intelligence);
+    stage_log("per-function loop");
+    for (function, size_result) in sized {
         let name = function.name;
         let address = function.address;
-        let size = match program.function_size(address) {
+        let size = match size_result {
             Ok(size) if size > 0 => size,
             Ok(_) => {
                 skipped += 1;
@@ -1023,7 +1141,14 @@ pub fn ifc_analyze_all(args: &mut IStream, status: &mut IfaceStatus) -> IfaceRes
                             .map_err(|err| IfaceError::Execution(err.to_string()))?;
                     }
                 }
+                let mut listing_instructions = Vec::with_capacity(report.instructions.len());
                 for instruction in report.instructions {
+                    listing_instructions.push(crate::idastyle::ListingInsn {
+                        address: instruction.address,
+                        bytes: instruction.bytes.clone(),
+                        mnemonic: instruction.mnemonic.clone(),
+                        operands: instruction.operands.clone(),
+                    });
                     let bytes = instruction
                         .bytes
                         .iter()
@@ -1037,6 +1162,18 @@ pub fn ifc_analyze_all(args: &mut IStream, status: &mut IfaceStatus) -> IfaceRes
                     )
                     .map_err(|err| IfaceError::Execution(err.to_string()))?;
                 }
+                let mut listing_text = String::new();
+                listing_context.render_function(
+                    &crate::idastyle::ListingFunction {
+                        name: name.clone(),
+                        start: address,
+                        instructions: listing_instructions,
+                    },
+                    &mut listing_text,
+                );
+                lst_file
+                    .write_all(listing_text.as_bytes())
+                    .map_err(|err| IfaceError::Execution(format!("Cannot write {}: {err}", lst_path.display())))?;
             }
             Err(err) => {
                 skipped += 1;
@@ -1050,6 +1187,13 @@ pub fn ifc_analyze_all(args: &mut IStream, status: &mut IfaceStatus) -> IfaceRes
             Ok(text) => {
                 writeln!(c_file, "\n/* {name} @ {address:#x} */")
                     .and_then(|_| c_file.write_all(text.as_bytes()))
+                    .map_err(|err| IfaceError::Execution(err.to_string()))?;
+                let restyled = crate::idastyle::restyle_pseudocode(
+                    &text,
+                    crate::idastyle::PseudocodeStyle::for_language(program.language_id()),
+                );
+                writeln!(ida_c_file, "\n/* {name} @ {address:#x} */")
+                    .and_then(|_| ida_c_file.write_all(restyled.as_bytes()))
                     .map_err(|err| IfaceError::Execution(err.to_string()))?;
                 processed += 1;
                 decompile_ok += 1;
@@ -1077,9 +1221,18 @@ pub fn ifc_analyze_all(args: &mut IStream, status: &mut IfaceStatus) -> IfaceRes
         if processed.is_multiple_of(25) && processed > 0 {
             out_write(&optr, &format!("Progress: {processed}/{total} functions processed\n"));
         }
+        if processed > 0 && processed.is_multiple_of(500) {
+            stage_log(&format!("processed {processed}/{total}"));
+        }
     }
     c_file.flush().map_err(|err| IfaceError::Execution(err.to_string()))?;
+    ida_c_file
+        .flush()
+        .map_err(|err| IfaceError::Execution(err.to_string()))?;
     asm_file.flush().map_err(|err| IfaceError::Execution(err.to_string()))?;
+    lst_file
+        .flush()
+        .map_err(|err| IfaceError::Execution(format!("Cannot write {}: {err}", lst_path.display())))?;
     csv_file.flush().map_err(|err| IfaceError::Execution(err.to_string()))?;
     xrefs_file
         .flush()
@@ -1098,7 +1251,7 @@ pub fn ifc_analyze_all(args: &mut IStream, status: &mut IfaceStatus) -> IfaceRes
         .flush()
         .map_err(|err| IfaceError::Execution(err.to_string()))?;
     let report = format!(
-        "GHIDRA-RUST-ENGINE ANALYSIS REPORT\n===============================\nInput file: {filename}\nDiscovered functions: {total}\nSuccessfully decompiled: {processed}\nFunctions with assembly exported: {assembly_ok}\nSize lookup failures: {size_failures}\nDisassembly failures: {assembly_failures}\nPartial disassemblies: {partial_disassemblies}\nUndecoded bytes in recovered function ranges: {undecoded_bytes}\nDecompilation failures: {decompile_failures}\nData symbols: {}\nStrings: {}\nCall edges: {}\nExecutable bytes scanned: {}\nExecutable bytes decoded: {}\nUndecoded executable bytes: {}\nSweep instructions: {}\nSweep gaps: {}\nCross references: {}\nCFGs recovered: {}\nData-flow summaries: {}\nFingerprints: {}\nPrototype evidence records: {}\nIntelligence failures: {}\n\nLIMITATIONS\n-----------\nFunction discovery is heuristic and may miss functions or include false positives. Assembly covers recovered function ranges only, not every executable byte. Decompiled C is inferred pseudocode, not original source or a guarantee of semantic equivalence. Xrefs, data references, function boundaries, names, and types may be incomplete. This engine does not claim IDA-equivalent completeness.\n\nDIAGNOSTICS\n-----------\n{}",
+        "REVERSE++ ANALYSIS REPORT\n=========================\nInput file: {filename}\nDiscovered functions: {total}\nSuccessfully decompiled: {processed}\nFunctions with assembly exported: {assembly_ok}\nSize lookup failures: {size_failures}\nDisassembly failures: {assembly_failures}\nPartial disassemblies: {partial_disassemblies}\nUndecoded bytes in recovered function ranges: {undecoded_bytes}\nDecompilation failures: {decompile_failures}\nData symbols: {}\nStrings: {}\nCall edges: {}\nExecutable bytes scanned: {}\nExecutable bytes decoded: {}\nUndecoded executable bytes: {}\nSweep instructions: {}\nSweep gaps: {}\nCross references: {}\nCFGs recovered: {}\nData-flow summaries: {}\nFingerprints: {}\nPrototype evidence records: {}\nIntelligence failures: {}\n\nLIMITATIONS\n-----------\nFunction discovery is heuristic and may miss functions or include false positives. Assembly covers recovered function ranges only, not every executable byte. Decompiled C is inferred pseudocode, not original source or a guarantee of semantic equivalence. Xrefs, data references, function boundaries, names, and types may be incomplete. This engine does not claim complete coverage.\n\nDIAGNOSTICS\n-----------\n{}",
         data.len(),
         strings.len(),
         calls.len(),
@@ -1107,24 +1260,20 @@ pub fn ifc_analyze_all(args: &mut IStream, status: &mut IfaceStatus) -> IfaceRes
         code_coverage.undecoded_bytes,
         code_coverage.instruction_count,
         code_coverage.gap_count,
-        intelligence.cross_references.len(),
-        intelligence.control_flow_graphs.len(),
-        intelligence.data_flow.len(),
-        intelligence.fingerprints.len(),
-        intelligence.prototypes.len(),
-        intelligence.failures.len(),
-        if diagnostics.is_empty() {
-            "No per-function failures reported.".to_string()
-        } else {
-            diagnostics.join("\n")
-        }
+        intelligence_counts[0],
+        intelligence_counts[1],
+        intelligence_counts[2],
+        intelligence_counts[3],
+        intelligence_counts[4],
+        intelligence_counts[5],
+        diagnostics.render()
     );
     std::fs::write(&report_path, report)
         .map_err(|err| IfaceError::Execution(format!("Cannot write {}: {err}", report_path.display())))?;
     out_write(
         &optr,
         &format!(
-            "\nAnalysis finished: {processed}/{total} functions decompiled; {skipped} operation(s) skipped.\nAssembly exported: {assembly_ok}/{total}. Failures: size={size_failures}, disassembly={assembly_failures}, decompilation={decompile_failures}.\nData symbols: {} | Strings: {} | Call edges: {}\nOutput folder: {}\nFiles: {binary_name}.c, {binary_name}.asm, {binary_name}.csv, {binary_name}.coverage.csv, {binary_name}.xrefs.csv, {binary_name}.cfg.csv, {binary_name}.dataflow.csv, {binary_name}.fingerprints.csv, {binary_name}.prototypes.csv, {binary_name}.intelligence-failures.csv, {binary_name}.report.txt\n",
+            "\nAnalysis finished: {processed}/{total} functions decompiled; {skipped} operation(s) skipped.\nAssembly exported: {assembly_ok}/{total}. Failures: size={size_failures}, disassembly={assembly_failures}, decompilation={decompile_failures}.\nData symbols: {} | Strings: {} | Call edges: {}\nOutput folder: {}\nFiles: {binary_name}.c, {binary_name}.asm, {binary_name}.csv, {binary_name}.lst, {binary_name}.ida.c, {binary_name}.coverage.csv, {binary_name}.xrefs.csv, {binary_name}.cfg.csv, {binary_name}.dataflow.csv, {binary_name}.fingerprints.csv, {binary_name}.prototypes.csv, {binary_name}.intelligence-failures.csv, {binary_name}.report.txt\n",
             data.len(),
             strings.len(),
             calls.len(),

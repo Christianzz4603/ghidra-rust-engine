@@ -1,8 +1,12 @@
 DISCLAIMER: This was automatically ported by an agent from Ghidra's C++ source code into Rust.
 
-# ghidra-decompiler
+# Reverse++
 
-A pure Rust port of the Ghidra decompiler (Ghidra 12.2, `Ghidra/Features/Decompiler/src/decompile/cpp`).
+Reverse++ is a Ghidra-based reverse-engineering engine written in pure Rust: no C, C++ or Java dependencies. It is built on a faithful port of the Ghidra decompiler and SLEIGH processor specifications, with extra analysis, container-format readers (ELF/PE/Mach-O, Android `.dex`/APK, Java `.class`/`.jar`, Python `.pyc`) and a headless CLI on top.
+
+Reverse++ is an independent project based on [Ghidra](https://github.com/NationalSecurityAgency/ghidra) (Apache-2.0). It is not affiliated with or endorsed by the NSA or the Ghidra project; see `NOTICE` and `LICENSE`. The crate and binary names (`ghidra-decompiler`, `ghidra-rust_cli`) are unchanged for now so existing builds, release assets and the `update` command keep working.
+
+The decompiler core is a port of the Ghidra decompiler (Ghidra 12.2, `Ghidra/Features/Decompiler/src/decompile/cpp`).
 It has no C, C++ or Java dependencies. The output is textually identical to the C++ decompiler on the
 test corpora in `tests/data`.
 
@@ -189,13 +193,9 @@ cargo build --profile release-small --no-default-features --features mobile --ex
 Use the ordinary `--release` profile when maximum decompilation speed is the priority. Desktop users can keep the default `--release` build; no processor support is removed from the desktop defaults.
 
 
-## Standalone browser workspace (Android / Termux)
+## Interface
 
-The browser workspace is compiled directly into the single `ghidra-rust_cli` executable. No `install-termux.sh`, `termux-open`, Node.js, XFCE, X11, or separate web UI binary is required.
-
-Start it with `./ghidra-rust_cli web`, then manually open `http://127.0.0.1:8080` in Firefox or another browser. Use `./ghidra-rust_cli web --port=9090` to choose another port. The server binds only to `127.0.0.1` and is not exposed to your Wi-Fi network by default.
-
-The normal interactive console remains available by running `./ghidra-rust_cli`.
+Reverse++ is a headless, command-line program, like Ghidra's headless mode. Run `ghidra-rust_cli` for the interactive console, or use the subcommands listed by `--help`. A native cross-platform desktop app is planned; there is no web or browser interface.
 
 ## Native library builds and signing
 
@@ -334,7 +334,7 @@ Generated files:
 - `data.csv`: known global data and import/GOT symbols.
 - `strings.csv`: printable NUL-terminated UTF-8 strings from recognized string sections.
 
-This is a growing static-analysis pipeline, not yet equivalent to IDA Pro. Unreferenced functions, functions reachable only through unresolved indirect calls, non-UTF-8/UTF-16 strings, complex jump tables, and code hidden behind unusual control-flow patterns may still be missed. The output is best-effort and does not claim every executable byte has been classified.
+This is a growing static-analysis pipeline. Unreferenced functions, functions reachable only through unresolved indirect calls, non-UTF-8/UTF-16 strings, complex jump tables, and code hidden behind unusual control-flow patterns may still be missed. The output is best-effort and does not claim every executable byte has been classified.
 
 ## Tests
 
@@ -409,7 +409,7 @@ Every push to `master` triggers a cross-platform release build. The workflow pub
 
 Standalone, uncompressed CLI executables are provided directly as GitHub Release assets for Android `armeabi-v7a`, `arm64-v8a`, `x86`, and `x86_64`; Linux x86_64 and ARM64; Windows x64; and macOS Intel and Apple Silicon. Choose the asset matching your operating system and CPU architecture. Android assets are named `ghidra-rust_cli-Android-<ABI>`; other platforms use `ghidra-rust_cli-<platform>`. No ZIP, TAR, installer, or Termux setup script is needed.
 
-On Android/Termux, download the ARM64 executable, then run `chmod +x ghidra-rust_cli-Android-arm64-v8a` and `./ghidra-rust_cli-Android-arm64-v8a`. Launch the browser interface with `./ghidra-rust_cli-Android-arm64-v8a web`. The update notice is informational and points to GitHub Releases; it never replaces the running executable automatically.
+On Android/Termux, download the ARM64 executable, then run `chmod +x ghidra-rust_cli-Android-arm64-v8a` and `./ghidra-rust_cli-Android-arm64-v8a`. The update notice is informational and points to GitHub Releases; it never replaces the running executable automatically.
 
 
 ### Release performance
