@@ -12,9 +12,15 @@ use crate::space::SpaceRef;
 const MAX_DISCOVERED_FUNCTIONS: usize = 2_000_000;
 const MAX_ARM64_PROLOGUE_CANDIDATES: usize = 50_000;
 const MAX_ARM64_SCAN_BYTES: u64 = 128 * 1024 * 1024;
+/// With at least this many function starts from container metadata (`.eh_frame`, `.pdata`, ...)
+/// the list is treated as complete and stray constants are not promoted to functions. Without
+/// such metadata, constants that land in code remain candidate function starts.
+const MIN_STRUCTURED_HINTS: usize = 16;
 
 pub(super) struct FlowFacts {
     pub(super) call_targets: Vec<u64>,
+    /// `(callee, call site)` pairs, kept so the call graph does not need to lift the function again.
+    pub(super) calls: Vec<(u64, u64)>,
     pub(super) constants: BTreeSet<u64>,
     pub(super) body: Range<u64>,
 }
@@ -37,6 +43,7 @@ impl Program {
             let entry = function.get_address().get_offset();
             let mut facts = FlowFacts {
                 call_targets: Vec::new(),
+                calls: Vec::new(),
                 constants: BTreeSet::new(),
                 body: entry..entry.saturating_add(1),
             };
@@ -54,9 +61,13 @@ impl Program {
                 position = operation.links(PcodeOp::INSERT_LIST).next;
             }
             for index in 0..function.num_calls() {
-                let target = function.call_spec(function.get_call_specs(index)).get_entry_address();
+                let spec = function.call_spec(function.get_call_specs(index));
+                let target = spec.get_entry_address();
                 if !target.is_invalid() {
-                    facts.call_targets.push(target.get_offset());
+                    let target_offset = target.get_offset();
+                    let site = function.op(spec.get_op()).get_addr().get_offset();
+                    facts.call_targets.push(target_offset);
+                    facts.calls.push((target_offset, site));
                 }
             }
             architecture.clear_analysis(function);
@@ -161,6 +172,7 @@ impl Program {
         let mut pending = seeds;
         let mut visited = BTreeSet::new();
         let mut logged = 0usize;
+        let trust_constants = self.start_hints.len() < MIN_STRUCTURED_HINTS;
         let mut create_time = std::time::Duration::ZERO;
         let mut flow_time = std::time::Duration::ZERO;
         while let Some(address) = pending.pop() {
@@ -195,16 +207,19 @@ impl Program {
             let started = std::time::Instant::now();
             let facts = self.flow_facts(sym)?;
             flow_time += started.elapsed();
-            let Some(facts) = facts else {
+            let Some(mut facts) = facts else {
                 continue;
             };
+            self.call_cache.insert(address, std::mem::take(&mut facts.calls));
             pending.extend(facts.call_targets);
-            pending.extend(
-                facts
-                    .constants
-                    .into_iter()
-                    .filter(|constant| !facts.body.contains(constant)),
-            );
+            if trust_constants {
+                pending.extend(
+                    facts
+                        .constants
+                        .into_iter()
+                        .filter(|constant| !facts.body.contains(constant)),
+                );
+            }
         }
         Ok(())
     }

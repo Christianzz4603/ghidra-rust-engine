@@ -70,6 +70,8 @@ pub struct Program {
     /// Function starts recovered at load time from container metadata (`.eh_frame`, `.pdata`,
     /// `LC_FUNCTION_STARTS`) and byte patterns; used as extra discovery seeds.
     start_hints: Vec<u64>,
+    /// Call sites found while discovering functions, `caller -> [(callee, call site)]`.
+    call_cache: BTreeMap<u64, Vec<(u64, u64)>>,
     // Translation is immutable for a loaded image. Shared cached streams let
     // intelligence, SSA, and reconstruction reuse expensive P-code decoding.
     pcode_cache: RefCell<PcodeCache>,
@@ -490,6 +492,7 @@ impl Program {
             code_sections: Vec::new(),
             entry: None,
             start_hints: Vec::new(),
+            call_cache: BTreeMap::new(),
             pcode_cache: RefCell::new(PcodeCache::default()),
         };
         match symbols {
@@ -1689,6 +1692,24 @@ impl Program {
         let mut graph = CallGraph::new();
         graph.build_all_nodes(&mut self.architecture)?;
         for sym in self.architecture.function_symbols_address_order()? {
+            // Discovery already lifted every function it found; reuse its call sites.
+            let caller_offset = self.function_address(sym)?;
+            if let Some(calls) = self.call_cache.get(&caller_offset) {
+                let caller = self.code_address(caller_offset)?;
+                if graph.find_node(&caller).is_some() {
+                    for (callee_offset, site_offset) in calls {
+                        let callee = self.code_address(*callee_offset)?;
+                        if graph.find_node(&callee).is_none() {
+                            let mut name = String::new();
+                            self.architecture.name_function(&callee, &mut name);
+                            graph.add_node(&callee, &name);
+                        }
+                        let site = self.code_address(*site_offset)?;
+                        graph.add_edge(&caller, &callee, &site);
+                    }
+                    continue;
+                }
+            }
             self.architecture.with_function(sym, |function, architecture| {
                 if function.has_no_code() {
                     return Ok(());
