@@ -668,7 +668,9 @@ fn stage_log(label: &str) {
                 .map(|line| line.trim_start_matches("VmRSS:").trim().to_string())
         })
         .unwrap_or_default();
-    eprintln!("[stage] {label} rss={resident}");
+    static START: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
+    let seconds = START.get_or_init(Instant::now).elapsed().as_secs();
+    eprintln!("[stage] {label} t={seconds}s rss={resident}");
 }
 
 pub fn ifc_analyze_all(args: &mut IStream, status: &mut IfaceStatus) -> IfaceResult<()> {
@@ -1207,6 +1209,9 @@ pub fn ifc_analyze_all(args: &mut IStream, status: &mut IfaceStatus) -> IfaceRes
         .map_err(|err| IfaceError::Execution(err.to_string()))?;
         if processed.is_multiple_of(25) && processed > 0 {
             out_write(&optr, &format!("Progress: {processed}/{total} functions processed\n"));
+        }
+        if processed > 0 && processed.is_multiple_of(500) {
+            stage_log(&format!("processed {processed}/{total}"));
         }
     }
     c_file.flush().map_err(|err| IfaceError::Execution(err.to_string()))?;

@@ -82,6 +82,9 @@ jobs:
             python3 ci/scale/score.py "$RUNNER_TEMP/lib/libscale.so" "$RUNNER_TEMP/analysis" libscale.stripped.so
             echo
             du -sh "$RUNNER_TEMP/analysis" 2>/dev/null | sed 's/^/- output size: /'
+            echo '```'
+            ls -lS "$RUNNER_TEMP/analysis" 2>/dev/null | head -12
+            echo '```'
           } | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Upload reports
         if: always()
