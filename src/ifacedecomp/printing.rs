@@ -1075,6 +1075,17 @@ pub fn ifc_analyze_all(args: &mut IStream, status: &mut IfaceStatus) -> IfaceRes
             .collect();
         ListingContext::new(&ranges, &listing_xrefs, &listing_options)
     };
+    // Everything the loop still needs from the intelligence pass is a count; release the
+    // per-function CFGs, data flow and fingerprints (gigabytes on large libraries) now.
+    let intelligence_counts = [
+        intelligence.cross_references.len(),
+        intelligence.control_flow_graphs.len(),
+        intelligence.data_flow.len(),
+        intelligence.fingerprints.len(),
+        intelligence.prototypes.len(),
+        intelligence.failures.len(),
+    ];
+    drop(intelligence);
     stage_log("per-function loop");
     for (function, size_result) in sized {
         let name = function.name;
@@ -1249,12 +1260,12 @@ pub fn ifc_analyze_all(args: &mut IStream, status: &mut IfaceStatus) -> IfaceRes
         code_coverage.undecoded_bytes,
         code_coverage.instruction_count,
         code_coverage.gap_count,
-        intelligence.cross_references.len(),
-        intelligence.control_flow_graphs.len(),
-        intelligence.data_flow.len(),
-        intelligence.fingerprints.len(),
-        intelligence.prototypes.len(),
-        intelligence.failures.len(),
+        intelligence_counts[0],
+        intelligence_counts[1],
+        intelligence_counts[2],
+        intelligence_counts[3],
+        intelligence_counts[4],
+        intelligence_counts[5],
         diagnostics.render()
     );
     std::fs::write(&report_path, report)
