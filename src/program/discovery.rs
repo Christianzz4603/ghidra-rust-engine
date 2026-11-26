@@ -211,6 +211,13 @@ impl Program {
                 continue;
             };
             self.call_cache.insert(address, std::mem::take(&mut facts.calls));
+            let string_constants: Vec<u64> = facts
+                .constants
+                .iter()
+                .copied()
+                .filter(|constant| self.string_sections.iter().any(|section| section.contains(constant)))
+                .collect();
+            self.string_cache.insert(address, string_constants);
             pending.extend(facts.call_targets);
             if trust_constants {
                 pending.extend(

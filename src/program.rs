@@ -72,6 +72,9 @@ pub struct Program {
     start_hints: Vec<u64>,
     /// Call sites found while discovering functions, `caller -> [(callee, call site)]`.
     call_cache: BTreeMap<u64, Vec<(u64, u64)>>,
+    /// Constants inside string sections referenced by each discovered function, so decompilation
+    /// does not lift the function a second time just to find its strings.
+    string_cache: BTreeMap<u64, Vec<u64>>,
     // Translation is immutable for a loaded image. Shared cached streams let
     // intelligence, SSA, and reconstruction reuse expensive P-code decoding.
     pcode_cache: RefCell<PcodeCache>,
@@ -493,6 +496,7 @@ impl Program {
             entry: None,
             start_hints: Vec::new(),
             call_cache: BTreeMap::new(),
+            string_cache: BTreeMap::new(),
             pcode_cache: RefCell::new(PcodeCache::default()),
         };
         match symbols {
@@ -602,7 +606,14 @@ impl Program {
         if self.string_sections.is_empty() {
             return Ok(());
         }
-        let constants = self.flow_facts(sym)?.map(|facts| facts.constants).unwrap_or_default();
+        let function_offset = self.function_address(sym)?;
+        let constants: Vec<u64> = match self.string_cache.get(&function_offset) {
+            Some(cached) => cached.clone(),
+            None => self
+                .flow_facts(sym)?
+                .map(|facts| facts.constants.into_iter().collect())
+                .unwrap_or_default(),
+        };
         for constant in constants {
             if self.string_sections.iter().any(|section| section.contains(&constant)) {
                 self.add_string_symbol(constant)?;
