@@ -726,6 +726,11 @@ pub fn ifc_analyze_all(args: &mut IStream, status: &mut IfaceStatus) -> IfaceRes
         &optr,
         "Discovering functions from entry point, symbols, and reachable code...\n",
     );
+    if std::env::var_os("REVERSEPP_MEM_PROBE").is_some() {
+        for (label, bytes) in program.probe_function_footprint() {
+            eprintln!("[probe] {label}: {bytes} bytes each");
+        }
+    }
     stage_log("discover functions");
     program
         .discover_functions()

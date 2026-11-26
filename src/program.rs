@@ -1,5 +1,6 @@
 mod demangle;
 mod discovery;
+mod probe;
 mod stubs;
 mod symbols;
 
