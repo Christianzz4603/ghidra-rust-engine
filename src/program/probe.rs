@@ -68,7 +68,6 @@ impl Program {
             resident_bytes().saturating_sub(before) / count,
         ));
         keep.push(Box::new(funcs));
-        drop(keep);
 
         // Real discovery path: create function symbols for known starts, then lift each one.
         let hints: Vec<u64> = self.start_hints.iter().copied().take(5_000).collect();
@@ -101,7 +100,31 @@ impl Program {
                 "flow_facts microseconds per lifted function",
                 started.elapsed().as_micros() as usize / lifted.max(1),
             ));
+            let counts = |program: &Program| {
+                program
+                    .architecture
+                    .symboltab
+                    .as_deref()
+                    .map_or((0, 0), |db| (db.scopes.len(), db.symbols.len()))
+            };
+            let (scopes_after_first, symbols_after_first) = counts(self);
+            rows.push(("scopes after first flow pass", scopes_after_first));
+            rows.push(("symbols after first flow pass", symbols_after_first));
+            // A second pass over the same functions: if memory stops growing, the retention is a
+            // one-time artifact of the first lift (new symbols, types, caches), not a per-call leak.
+            let before = resident_bytes();
+            for &symbol in &symbols {
+                let _ = self.flow_facts(symbol);
+            }
+            rows.push((
+                "retained by second flow pass, per function",
+                resident_bytes().saturating_sub(before) / symbols.len().max(1),
+            ));
+            let (scopes_after_second, symbols_after_second) = counts(self);
+            rows.push(("scopes after second flow pass", scopes_after_second));
+            rows.push(("symbols after second flow pass", symbols_after_second));
         }
+        drop(keep);
         rows
     }
 }
