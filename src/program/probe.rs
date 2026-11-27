@@ -17,6 +17,12 @@ use crate::varnode::VarnodeBank;
 const SAMPLES: usize = 20_000;
 
 fn resident_bytes() -> usize {
+    // Exact live heap bytes when a counting allocator is installed; otherwise resident set size,
+    // which also includes allocator fragmentation.
+    let live = crate::ifacedecomp::LIVE_BYTES.load(std::sync::atomic::Ordering::Relaxed);
+    if live > 0 {
+        return live;
+    }
     std::fs::read_to_string("/proc/self/status")
         .ok()
         .and_then(|status| {

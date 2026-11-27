@@ -140,6 +140,28 @@ fn print_update_status() {
     }
 }
 
+/// Counts live heap bytes so the memory probe can tell real retention from allocator fragmentation.
+struct CountingAllocator;
+
+// SAFETY: every call is forwarded unchanged to the system allocator; only a counter is updated.
+unsafe impl std::alloc::GlobalAlloc for CountingAllocator {
+    unsafe fn alloc(&self, layout: std::alloc::Layout) -> *mut u8 {
+        let pointer = unsafe { std::alloc::System.alloc(layout) };
+        if !pointer.is_null() {
+            ghidra_decompiler::ifacedecomp::LIVE_BYTES.fetch_add(layout.size(), std::sync::atomic::Ordering::Relaxed);
+        }
+        pointer
+    }
+
+    unsafe fn dealloc(&self, pointer: *mut u8, layout: std::alloc::Layout) {
+        unsafe { std::alloc::System.dealloc(pointer, layout) };
+        ghidra_decompiler::ifacedecomp::LIVE_BYTES.fetch_sub(layout.size(), std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
+#[global_allocator]
+static ALLOCATOR: CountingAllocator = CountingAllocator;
+
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().collect();
     if args

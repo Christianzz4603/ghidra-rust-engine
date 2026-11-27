@@ -554,3 +554,7 @@ mod command_registration_tests {
         }
     }
 }
+
+/// Live heap bytes, maintained by a counting allocator when the host binary installs one
+/// (the `decomp` example does). Zero means "not tracked". Used by the memory probe.
+pub static LIVE_BYTES: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
