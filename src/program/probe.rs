@@ -129,6 +129,38 @@ impl Program {
             let (scopes_after_second, symbols_after_second) = counts(self);
             rows.push(("scopes after second flow pass", scopes_after_second));
             rows.push(("symbols after second flow pass", symbols_after_second));
+            // Bisect which step of flow_facts keeps memory: clearing alone, or flow plus clearing.
+            let sample: Vec<_> = symbols.iter().copied().take(1_000).collect();
+            let n = sample.len().max(1);
+            let before = resident_bytes();
+            for &symbol in &sample {
+                let _ = self.architecture.with_function(symbol, |function, architecture| {
+                    if !function.has_no_code() {
+                        architecture.clear_analysis(function);
+                    }
+                    Ok(())
+                });
+            }
+            rows.push(("A: clear_analysis only, per function", resident_bytes().saturating_sub(before) / n));
+            for label in ["B1: follow_flow + clear (first)", "B2: follow_flow + clear (repeat)"] {
+                let before = resident_bytes();
+                for &symbol in &sample {
+                    let _ = self.architecture.with_function(symbol, |function, architecture| {
+                        if function.has_no_code() {
+                            return Ok(());
+                        }
+                        architecture.clear_analysis(function);
+                        let space = function.get_address().get_space().cloned();
+                        let highest = space.as_ref().map_or(u64::MAX, |space| space.get_highest());
+                        let start = Address::from_parts(space.clone(), 0);
+                        let end = Address::from_parts(space, highest);
+                        let _ = function.follow_flow(&start, &end, architecture);
+                        architecture.clear_analysis(function);
+                        Ok(())
+                    });
+                }
+                rows.push((label, resident_bytes().saturating_sub(before) / n));
+            }
         }
         drop(keep);
         rows
