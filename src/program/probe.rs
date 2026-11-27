@@ -69,6 +69,39 @@ impl Program {
         ));
         keep.push(Box::new(funcs));
         drop(keep);
+
+        // Real discovery path: create function symbols for known starts, then lift each one.
+        let hints: Vec<u64> = self.start_hints.iter().copied().take(5_000).collect();
+        if !hints.is_empty() {
+            let before = resident_bytes();
+            let mut symbols = Vec::new();
+            for &address in &hints {
+                if let Ok(symbol) = self.discovered_function(address) {
+                    symbols.push(symbol);
+                }
+            }
+            let count = symbols.len().max(1);
+            rows.push((
+                "function symbol + Funcdata + local scope (real)",
+                resident_bytes().saturating_sub(before) / count,
+            ));
+            let before = resident_bytes();
+            let started = std::time::Instant::now();
+            let mut lifted = 0usize;
+            for &symbol in &symbols {
+                if matches!(self.flow_facts(symbol), Ok(Some(_))) {
+                    lifted += 1;
+                }
+            }
+            rows.push((
+                "retained after flow_facts, per lifted function",
+                resident_bytes().saturating_sub(before) / lifted.max(1),
+            ));
+            rows.push((
+                "flow_facts microseconds per lifted function",
+                started.elapsed().as_micros() as usize / lifted.max(1),
+            ));
+        }
         rows
     }
 }

@@ -231,7 +231,7 @@ impl Program {
         Ok(())
     }
 
-    fn discovered_function(&mut self, address: u64) -> Result<SymbolId> {
+    pub(super) fn discovered_function(&mut self, address: u64) -> Result<SymbolId> {
         let code_address = self.code_address(address)?;
         let scope = self.global_scope()?;
         if let Some(sym) = self.symbol_table()?.scope_query_function(scope, &code_address) {
