@@ -90,7 +90,7 @@ fn engine_thread(requests: Receiver<Request>, responses: Sender<Response>, ctx: 
     }
 }
 
-fn disassemble(program: &Program, address: u64) -> String {
+fn disassemble(program: &mut Program, address: u64) -> String {
     let size = match program.function_size(address) {
         Ok(size) if size > 0 => size,
         Ok(_) => return "; function size is zero\n".to_string(),
