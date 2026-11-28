@@ -121,9 +121,11 @@ impl Program {
             // A second pass over the same functions: if memory stops growing, the retention is a
             // one-time artifact of the first lift (new symbols, types, caches), not a per-call leak.
             let before = resident_bytes();
+            crate::ifacedecomp::track(1);
             for &symbol in &symbols {
                 let _ = self.flow_facts(symbol);
             }
+            crate::ifacedecomp::track(2);
             rows.push((
                 "retained by second flow pass, per function",
                 resident_bytes().saturating_sub(before) / symbols.len().max(1),

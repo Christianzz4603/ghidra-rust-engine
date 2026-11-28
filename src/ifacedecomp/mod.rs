@@ -558,3 +558,13 @@ mod command_registration_tests {
 /// Live heap bytes, maintained by a counting allocator when the host binary installs one
 /// (the `decomp` example does). Zero means "not tracked". Used by the memory probe.
 pub static LIVE_BYTES: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+/// Optional allocation-site tracker installed by the host binary (the `decomp` example):
+/// `1` starts tracking live allocations, `2` stops and prints the top allocation sites still live.
+pub static TRACK_HOOK: std::sync::OnceLock<fn(u8)> = std::sync::OnceLock::new();
+
+pub fn track(command: u8) {
+    if let Some(hook) = TRACK_HOOK.get() {
+        hook(command);
+    }
+}
