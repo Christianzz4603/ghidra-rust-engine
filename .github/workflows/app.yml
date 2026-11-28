@@ -32,3 +32,25 @@ jobs:
             app/target/release/reverse-pp-app
             app/target/release/reverse-pp-app.exe
           if-no-files-found: warn
+
+  android:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install the pinned toolchain and the Android target
+        run: |
+          rustup show
+          rustup target add aarch64-linux-android
+      - name: Install cargo-ndk
+        run: cargo install cargo-ndk --locked
+      - name: Build the native library (arm64-v8a)
+        working-directory: app
+        env:
+          ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_LATEST_HOME }}
+        run: cargo ndk -t arm64-v8a -o jniLibs build --release --lib
+      - name: Upload native library
+        uses: actions/upload-artifact@v4
+        with:
+          name: reverse-pp-app-android-arm64-v8a
+          path: app/jniLibs
+          if-no-files-found: error
