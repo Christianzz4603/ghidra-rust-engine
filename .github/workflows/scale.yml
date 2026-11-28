@@ -25,13 +25,12 @@ env:
 
 jobs:
   scale:
-    if: ${{ github.event_name != 'workflow_dispatch' || inputs.probe_only != 'true' || matrix.size_mb == 10 }}
     runs-on: ubuntu-24.04
     timeout-minutes: 350
     strategy:
       fail-fast: false
       matrix:
-        size_mb: [10, 100]
+        size_mb: ${{ fromJSON(inputs.probe_only == 'true' && '[10]' || '[10, 100]') }}
     steps:
       - uses: actions/checkout@v4
       - name: Install toolchain
