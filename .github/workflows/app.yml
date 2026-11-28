@@ -1,6 +1,6 @@
 name: App
 
-# Builds the native Reverse++ app (pure Rust, egui) on all three desktop platforms.
+# Builds the native Reverse++ app (pure Rust, egui) for Linux, Windows and Android.
 on:
   pull_request:
     paths:
@@ -16,7 +16,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-24.04, windows-latest, macos-latest]
+        os: [ubuntu-24.04, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
