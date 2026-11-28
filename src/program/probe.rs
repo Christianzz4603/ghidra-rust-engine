@@ -132,6 +132,26 @@ impl Program {
             let (scopes_after_second, symbols_after_second) = counts(self);
             rows.push(("scopes after second flow pass", scopes_after_second));
             rows.push(("symbols after second flow pass", symbols_after_second));
+            // Which global store holds the leftovers? Clear each and see how much live heap is freed.
+            let before = resident_bytes();
+            if let Some(comments) = self.architecture.commentdb.as_deref_mut() {
+                comments.clear();
+            }
+            rows.push((
+                "freed by clearing all comments, per function",
+                before.saturating_sub(resident_bytes()) / symbols.len().max(1),
+            ));
+            let before = resident_bytes();
+            {
+                let mut cache = self.pcode_cache.borrow_mut();
+                cache.entries.clear();
+                cache.order.clear();
+                cache.estimated_bytes = 0;
+            }
+            rows.push((
+                "freed by clearing the P-code cache, per function",
+                before.saturating_sub(resident_bytes()) / symbols.len().max(1),
+            ));
             // Bisect which step of flow_facts keeps memory: clearing alone, or flow plus clearing.
             let sample: Vec<_> = symbols.iter().copied().take(1_000).collect();
             let n = sample.len().max(1);
