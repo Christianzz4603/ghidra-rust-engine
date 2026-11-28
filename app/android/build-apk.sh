@@ -10,9 +10,10 @@ JNI="$(cd "$1" && pwd)"
 OUT="$(mkdir -p "$(dirname "$2")" && cd "$(dirname "$2")" && pwd)/$(basename "$2")"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:?set ANDROID_HOME}}"
-BT="$(ls -d "$SDK"/build-tools/* | sort -V | tail -1)"
-# Stable platforms only (android-34), never previews such as android-37.2-beta3.
-PLATFORM="$(ls -d "$SDK"/platforms/android-* | grep -E 'android-[0-9]+$' | sort -V | tail -1)"
+# Pin to the long-stable 34 toolchain when present: the newest build-tools on the runner made
+# aapt2 exit silently. Fall back to the newest stable release otherwise.
+if [ -d "$SDK/build-tools/34.0.0" ]; then BT="$SDK/build-tools/34.0.0"; else BT="$(ls -d "$SDK"/build-tools/* | grep -E '/[0-9.]+$' | sort -V | tail -1)"; fi
+if [ -d "$SDK/platforms/android-34" ]; then PLATFORM="$SDK/platforms/android-34"; else PLATFORM="$(ls -d "$SDK"/platforms/android-* | grep -E 'android-[0-9]+$' | sort -V | tail -1)"; fi
 API="${PLATFORM##*-}"
 echo "build-tools: $BT"
 echo "platform:    $PLATFORM"
@@ -23,7 +24,7 @@ trap 'rm -rf "$WORK"' EXIT
 "$BT/aapt2" link -o "$WORK/base.apk" -I "$PLATFORM/android.jar" \
     --manifest "$HERE/AndroidManifest.xml" \
     --min-sdk-version 26 --target-sdk-version "$API" \
-    --version-code 1 --version-name 0.1.0
+    --version-code 1 --version-name 0.1.0 || { echo "aapt2 failed with $?"; exit 1; }
 
 ( cd "$JNI/.." && rm -rf "$WORK/stage" && mkdir -p "$WORK/stage" && cp -r "$JNI" "$WORK/stage/lib" )
 ( cd "$WORK/stage" && zip -r -q "$WORK/base.apk" lib )
