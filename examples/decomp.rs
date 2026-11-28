@@ -140,7 +140,159 @@ fn print_update_status() {
     }
 }
 
+/// Allocation-site tracker for memory diagnostics: while enabled it remembers the call stack of
+/// every allocation that is still live, so the sites that keep memory can be listed.
+mod tracker {
+    use std::cell::Cell;
+    use std::collections::HashMap;
+    use std::sync::Mutex;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    const DEPTH: usize = 16;
+
+    struct State {
+        live: HashMap<usize, (usize, u64)>,
+        sites: HashMap<u64, [usize; DEPTH]>,
+    }
+
+    static ENABLED: AtomicBool = AtomicBool::new(false);
+    static STATE: Mutex<Option<State>> = Mutex::new(None);
+
+    thread_local! {
+        // Set while the tracker itself allocates, so its own allocations are never tracked.
+        static BUSY: Cell<bool> = const { Cell::new(false) };
+    }
+
+    pub fn on_alloc(pointer: *mut u8, size: usize) {
+        if !ENABLED.load(Ordering::Relaxed) || BUSY.try_with(|busy| busy.replace(true)).unwrap_or(true) {
+            return;
+        }
+        let mut frames = [0usize; DEPTH];
+        let mut count = 0;
+        // SAFETY: the trace is not shared between threads; this thread is guarded by BUSY.
+        unsafe {
+            backtrace::trace_unsynchronized(|frame| {
+                if count < DEPTH {
+                    frames[count] = frame.ip() as usize;
+                    count += 1;
+                    true
+                } else {
+                    false
+                }
+            });
+        }
+        let mut key = 0xcbf2_9ce4_8422_2325u64;
+        for frame in &frames[..count] {
+            key = (key ^ *frame as u64).wrapping_mul(0x0100_0000_01b3);
+        }
+        if let Ok(mut guard) = STATE.lock() {
+            let state = guard.get_or_insert_with(|| State {
+                live: HashMap::new(),
+                sites: HashMap::new(),
+            });
+            state.live.insert(pointer as usize, (size, key));
+            state.sites.entry(key).or_insert(frames);
+        }
+        let _ = BUSY.try_with(|busy| busy.set(false));
+    }
+
+    pub fn on_free(pointer: *mut u8) {
+        if !ENABLED.load(Ordering::Relaxed) || BUSY.try_with(|busy| busy.replace(true)).unwrap_or(true) {
+            return;
+        }
+        if let Ok(mut guard) = STATE.lock()
+            && let Some(state) = guard.as_mut()
+        {
+            state.live.remove(&(pointer as usize));
+        }
+        let _ = BUSY.try_with(|busy| busy.set(false));
+    }
+
+    pub fn command(code: u8) {
+        match code {
+            1 => {
+                if let Ok(mut guard) = STATE.lock() {
+                    *guard = None;
+                }
+                ENABLED.store(true, Ordering::SeqCst);
+            }
+            _ => {
+                ENABLED.store(false, Ordering::SeqCst);
+                report();
+            }
+        }
+    }
+
+    fn report() {
+        let _ = BUSY.try_with(|busy| busy.set(true));
+        let Ok(guard) = STATE.lock() else { return };
+        let Some(state) = guard.as_ref() else { return };
+        let mut totals: HashMap<u64, (usize, usize)> = HashMap::new();
+        for (size, key) in state.live.values() {
+            let entry = totals.entry(*key).or_default();
+            entry.0 += size;
+            entry.1 += 1;
+        }
+        let mut sorted: Vec<_> = totals.into_iter().collect();
+        sorted.sort_by_key(|(_, (bytes, _))| std::cmp::Reverse(*bytes));
+        let total: usize = sorted.iter().map(|(_, (bytes, _))| *bytes).sum();
+        eprintln!("[leak] {total} live bytes from {} allocation sites", sorted.len());
+        for (key, (bytes, count)) in sorted.into_iter().take(8) {
+            eprintln!("[leak] site: {bytes} bytes in {count} allocations");
+            if let Some(frames) = state.sites.get(&key) {
+                let mut shown = 0;
+                for &frame in frames.iter().filter(|frame| **frame != 0) {
+                    let mut name = String::new();
+                    // SAFETY: single-threaded use here; BUSY is set so nothing is tracked.
+                    unsafe {
+                        backtrace::resolve_unsynchronized(frame as *mut std::ffi::c_void, |symbol| {
+                            if name.is_empty()
+                                && let Some(found) = symbol.name()
+                            {
+                                name = found.to_string();
+                            }
+                        });
+                    }
+                    if name.starts_with("alloc::") || name.starts_with("std::") || name.starts_with("core::") || name.contains("tracker") || name.contains("backtrace") || name.is_empty() {
+                        continue;
+                    }
+                    eprintln!("[leak]     at {name}");
+                    shown += 1;
+                    if shown >= 7 {
+                        break;
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Counts live heap bytes so the memory probe can tell real retention from allocator fragmentation.
+struct CountingAllocator;
+
+// SAFETY: every call is forwarded unchanged to the system allocator; only a counter is updated.
+unsafe impl std::alloc::GlobalAlloc for CountingAllocator {
+    unsafe fn alloc(&self, layout: std::alloc::Layout) -> *mut u8 {
+        let pointer = unsafe { std::alloc::System.alloc(layout) };
+        if !pointer.is_null() {
+            tracker::on_alloc(pointer, layout.size());
+            ghidra_decompiler::ifacedecomp::LIVE_BYTES.fetch_add(layout.size(), std::sync::atomic::Ordering::Relaxed);
+        }
+        pointer
+    }
+
+    unsafe fn dealloc(&self, pointer: *mut u8, layout: std::alloc::Layout) {
+        tracker::on_free(pointer);
+        unsafe { std::alloc::System.dealloc(pointer, layout) };
+        ghidra_decompiler::ifacedecomp::LIVE_BYTES.fetch_sub(layout.size(), std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
+#[global_allocator]
+static ALLOCATOR: CountingAllocator = CountingAllocator;
+
 fn main() -> ExitCode {
+    let _ = ghidra_decompiler::ifacedecomp::TRACK_HOOK.set(tracker::command);
     let args: Vec<String> = std::env::args().collect();
     if args
         .get(1)

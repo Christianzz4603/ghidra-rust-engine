@@ -38,6 +38,7 @@ impl Program {
             let end = Address::from_parts(space, highest);
             if function.follow_flow(&start, &end, architecture).is_err() {
                 architecture.clear_analysis(function);
+                function.release_buffers(architecture);
                 return Ok(None);
             }
             let entry = function.get_address().get_offset();
@@ -71,6 +72,7 @@ impl Program {
                 }
             }
             architecture.clear_analysis(function);
+            function.release_buffers(architecture);
             Ok(Some(facts))
         })
     }
@@ -211,6 +213,13 @@ impl Program {
                 continue;
             };
             self.call_cache.insert(address, std::mem::take(&mut facts.calls));
+            let string_constants: Vec<u64> = facts
+                .constants
+                .iter()
+                .copied()
+                .filter(|constant| self.string_sections.iter().any(|section| section.contains(constant)))
+                .collect();
+            self.string_cache.insert(address, string_constants);
             pending.extend(facts.call_targets);
             if trust_constants {
                 pending.extend(
@@ -224,7 +233,7 @@ impl Program {
         Ok(())
     }
 
-    fn discovered_function(&mut self, address: u64) -> Result<SymbolId> {
+    pub(super) fn discovered_function(&mut self, address: u64) -> Result<SymbolId> {
         let code_address = self.code_address(address)?;
         let scope = self.global_scope()?;
         if let Some(sym) = self.symbol_table()?.scope_query_function(scope, &code_address) {

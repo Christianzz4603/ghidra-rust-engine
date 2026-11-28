@@ -8,6 +8,9 @@ on:
       size_mb:
         description: "Library size in MB"
         default: "100"
+      probe_only:
+        description: "Run only the memory probe (10 MB job only)"
+        default: "false"
   pull_request:
     paths:
       - "ci/scale/**"
@@ -27,7 +30,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        size_mb: [10, 100]
+        size_mb: ${{ fromJSON(inputs.probe_only == 'true' && '[10]' || '[10, 100]') }}
     steps:
       - uses: actions/checkout@v4
       - name: Install toolchain
@@ -56,6 +59,7 @@ jobs:
           # taking the whole runner down.
           ulimit -v 6291456
           export REVERSEPP_STAGE_LOG=1
+          export REVERSEPP_MEM_PROBE=${{ inputs.probe_only == 'true' && 'only' || '1' }}
           timeout ${{ matrix.size_mb == 10 && '20m' || '60m' }} /usr/bin/time -v -o "$RUNNER_TEMP/time.txt" \
             target/release/examples/decomp -i "$RUNNER_TEMP/script.txt" < /dev/null > "$RUNNER_TEMP/console.log" 2>&1
           status=$?
