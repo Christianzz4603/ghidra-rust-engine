@@ -45,9 +45,10 @@ jobs:
         run: cargo install cargo-ndk --locked
       - name: Build the native library (arm64-v8a)
         working-directory: app
-        env:
-          ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_LATEST_HOME }}
-        run: cargo ndk -t arm64-v8a -o jniLibs build --release --lib
+        run: |
+          export ANDROID_NDK_HOME="$ANDROID_NDK_LATEST_HOME"
+          echo "NDK: $ANDROID_NDK_HOME"
+          cargo ndk -t arm64-v8a -o jniLibs build --release --lib
       - name: Upload native library
         uses: actions/upload-artifact@v4
         with:
