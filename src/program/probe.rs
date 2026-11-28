@@ -113,6 +113,8 @@ impl Program {
                     .as_deref()
                     .map_or((0, 0), |db| (db.scopes.len(), db.symbols.len()))
             };
+            let type_count = |program: &Program| program.architecture.types.as_deref().map_or(0, |types| types.arena.len());
+            rows.push(("types after first flow pass", type_count(self)));
             let (scopes_after_first, symbols_after_first) = counts(self);
             rows.push(("scopes after first flow pass", scopes_after_first));
             rows.push(("symbols after first flow pass", symbols_after_first));
@@ -126,6 +128,7 @@ impl Program {
                 "retained by second flow pass, per function",
                 resident_bytes().saturating_sub(before) / symbols.len().max(1),
             ));
+            rows.push(("types after second flow pass", type_count(self)));
             let (scopes_after_second, symbols_after_second) = counts(self);
             rows.push(("scopes after second flow pass", scopes_after_second));
             rows.push(("symbols after second flow pass", symbols_after_second));
