@@ -49,9 +49,14 @@ jobs:
           export ANDROID_NDK_HOME="$ANDROID_NDK_LATEST_HOME"
           echo "NDK: $ANDROID_NDK_HOME"
           cargo ndk -t arm64-v8a -o jniLibs build --release --lib
-      - name: Upload native library
+      - name: Package an installable APK
+        run: |
+          export ANDROID_HOME="${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
+          chmod +x app/android/build-apk.sh
+          app/android/build-apk.sh app/jniLibs app/dist/reverse-pp-debug.apk
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: reverse-pp-app-android-arm64-v8a
-          path: app/jniLibs
+          name: reverse-pp-android-apk
+          path: app/dist/reverse-pp-debug.apk
           if-no-files-found: error
