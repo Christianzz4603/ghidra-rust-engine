@@ -53,7 +53,7 @@ jobs:
         run: |
           export ANDROID_HOME="${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
           chmod +x app/android/build-apk.sh
-          app/android/build-apk.sh app/jniLibs app/dist/reverse-pp-debug.apk
+          bash -x app/android/build-apk.sh app/jniLibs app/dist/reverse-pp-debug.apk 2>&1
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
