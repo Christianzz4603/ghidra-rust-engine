@@ -33,7 +33,7 @@ trap 'rm -rf "$WORK"' EXIT
 
 KS="$WORK/debug.keystore"
 keytool -genkeypair -keystore "$KS" -storepass android -keypass android -alias reversepp \
-    -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Reverse++ debug" >/dev/null 2>&1
+    -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=ReversePP Debug"
 "$BT/apksigner" sign --ks "$KS" --ks-pass pass:android --key-pass pass:android \
     --out "$OUT" "$WORK/aligned.apk"
 "$BT/apksigner" verify --verbose "$OUT" | head -5
