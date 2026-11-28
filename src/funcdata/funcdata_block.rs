@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use crate::action::ActionDatabase;
 use crate::address::Address;
 use crate::architecture::Architecture;
-use crate::block::{BlockId, FlowBlock};
+use crate::block::{BlockId, BlockKind, FlowBlock};
 use crate::error::{Error, Result};
 use crate::flow::FlowInfo;
 use crate::funcdata::Funcdata;
@@ -38,6 +38,11 @@ impl Funcdata {
     pub fn clear_blocks(&mut self) {
         self.block_clear(self.bblocks);
         self.block_clear(self.sblocks);
+        // Destroyed blocks leave empty slots behind, so a function that is re-flowed many times
+        // (discovery does this for every candidate) would keep growing the arena. Rebuild it.
+        self.blocks = crate::arena::Arena::new();
+        self.bblocks = self.blocks.alloc(FlowBlock::new_graph_kind(BlockKind::Graph));
+        self.sblocks = self.blocks.alloc(FlowBlock::new_graph_kind(BlockKind::Graph));
     }
 
     pub fn clear_jump_tables(&mut self) {
