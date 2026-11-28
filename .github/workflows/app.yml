@@ -1,0 +1,62 @@
+name: App
+
+# Builds the native Reverse++ app (pure Rust, egui) for Linux, Windows and Android.
+on:
+  pull_request:
+    paths:
+      - "app/**"
+      - ".github/workflows/app.yml"
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install the pinned toolchain
+        run: rustup show
+      - name: Build
+        run: cargo build --release --manifest-path app/Cargo.toml
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: reverse-pp-app-${{ matrix.os }}
+          path: |
+            app/target/release/reverse-pp-app
+            app/target/release/reverse-pp-app.exe
+          if-no-files-found: warn
+
+  android:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install the pinned toolchain and the Android target
+        run: |
+          rustup show
+          rustup target add aarch64-linux-android
+      - name: Install cargo-ndk
+        run: cargo install cargo-ndk --locked
+      - name: Build the native library (arm64-v8a)
+        working-directory: app
+        run: |
+          export ANDROID_NDK_HOME="$ANDROID_NDK_LATEST_HOME"
+          echo "NDK: $ANDROID_NDK_HOME"
+          cargo ndk -t arm64-v8a -o jniLibs build --release --lib
+      - name: Package an installable APK
+        run: |
+          export ANDROID_HOME="${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
+          chmod +x app/android/build-apk.sh
+          bash -x app/android/build-apk.sh app/jniLibs app/dist/reverse-pp-debug.apk 2>&1
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: reverse-pp-android-apk
+          path: app/dist/reverse-pp-debug.apk
+          if-no-files-found: error

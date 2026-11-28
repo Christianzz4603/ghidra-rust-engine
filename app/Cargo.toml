@@ -1,0 +1,36 @@
+[package]
+name = "reverse-pp-app"
+description = "Reverse++ native cross-platform app (pure Rust, egui): Linux, Windows, macOS, Android"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.95"
+license = "Apache-2.0"
+publish = false
+
+# Standalone workspace: building the engine does not build the GUI and vice versa.
+[workspace]
+
+[lib]
+name = "reverse_pp_app"
+# `cdylib` is what the Android activity loads; `rlib` is what the desktop binary links.
+crate-type = ["rlib", "cdylib"]
+
+[[bin]]
+name = "reverse-pp-app"
+path = "src/main.rs"
+
+# Desktop: no `lumina` (HTTP/TLS client), which keeps the dependency tree pure Rust.
+[target.'cfg(not(target_os = "android"))'.dependencies]
+ghidra-decompiler = { path = "..", default-features = false, features = ["demangle", "all-processors"] }
+eframe = { version = "0.31", default-features = false, features = ["default_fonts", "glow", "x11", "wayland"] }
+
+# Android: the engine's smaller `mobile` processor set (AArch64, ARM, x86) and the native activity.
+[target.'cfg(target_os = "android")'.dependencies]
+ghidra-decompiler = { path = "..", default-features = false, features = ["mobile"] }
+eframe = { version = "0.31", default-features = false, features = ["default_fonts", "glow", "android-native-activity"] }
+winit = { version = "0.30", default-features = false, features = ["android-native-activity"] }
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+strip = "symbols"

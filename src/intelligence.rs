@@ -157,6 +157,12 @@ impl<'a> BinaryIntelligence<'a> {
         self.one(&f, &function_calls, &mut r)?;
         Ok(r)
     }
+    /// The control-flow graph of one function, without analysing the rest of the program.
+    pub fn function_cfg(&mut self, a: u64) -> Result<ControlFlowGraph> {
+        let size = self.program.function_size(a)?;
+        let report = self.program.disassemble_range_recovering(a, size)?;
+        Ok(cfg(a, report.instructions))
+    }
     pub fn references_to(&mut self, a: u64) -> Result<Vec<CrossReference>> {
         Ok(self
             .analyze_all()?
