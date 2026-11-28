@@ -38,6 +38,7 @@ impl Program {
             let end = Address::from_parts(space, highest);
             if function.follow_flow(&start, &end, architecture).is_err() {
                 architecture.clear_analysis(function);
+                function.release_buffers(architecture);
                 return Ok(None);
             }
             let entry = function.get_address().get_offset();
@@ -71,6 +72,7 @@ impl Program {
                 }
             }
             architecture.clear_analysis(function);
+            function.release_buffers(architecture);
             Ok(Some(facts))
         })
     }

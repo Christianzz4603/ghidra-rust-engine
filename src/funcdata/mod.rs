@@ -396,6 +396,21 @@ impl Funcdata {
         Ok(())
     }
 
+    /// Drop the buffers a finished analysis left allocated. `clear` empties the containers but
+    /// keeps their capacity, which adds up to tens of kilobytes per function when hundreds of
+    /// thousands of functions are analysed one after another.
+    pub fn release_buffers(&mut self, glb: &Architecture) {
+        let trans = glb.translate.as_deref().expect("architecture has no translator");
+        self.vbank = VarnodeBank::new(&glb.manager, trans);
+        self.obank = PcodeOpBank::new();
+        self.heritage = Heritage::new();
+        self.covermerge = Merge::new();
+        self.qlst = Vec::new();
+        self.jumpvec = Vec::new();
+        self.modify_list = Vec::new();
+        self.modify_before = Vec::new();
+    }
+
     fn warning_message(&self, txt: &str) -> String {
         let mut msg = if (self.flags & Funcdata::JUMPTABLERECOVERY_ON) != 0 {
             String::from("WARNING (jumptable): ")
