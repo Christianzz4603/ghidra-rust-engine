@@ -11,7 +11,8 @@ OUT="$(mkdir -p "$(dirname "$2")" && cd "$(dirname "$2")" && pwd)/$(basename "$2
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:?set ANDROID_HOME}}"
 BT="$(ls -d "$SDK"/build-tools/* | sort -V | tail -1)"
-PLATFORM="$(ls -d "$SDK"/platforms/android-* | sort -V | tail -1)"
+# Stable platforms only (android-34), never previews such as android-37.2-beta3.
+PLATFORM="$(ls -d "$SDK"/platforms/android-* | grep -E 'android-[0-9]+$' | sort -V | tail -1)"
 API="${PLATFORM##*-}"
 echo "build-tools: $BT"
 echo "platform:    $PLATFORM"
